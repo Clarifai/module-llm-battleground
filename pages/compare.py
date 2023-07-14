@@ -1,4 +1,5 @@
 import hashlib
+import os
 import uuid
 from itertools import cycle
 
@@ -24,6 +25,24 @@ def local_css(file_name):
   with open(file_name) as f:
     st.markdown("<style>{}</style>".format(f.read()), unsafe_allow_html=True)
 
+
+# Note(zeiler): we need to store a special PAT to post inputs.
+@st.cache_resource(experimental_allow_widgets=True)
+def load_pat():
+  home = os.environ['HOME']
+  if not os.path.exists(home + '/.clarifai_pat'):
+    pat = st.text_input("Enter a Clarifai Personal Access Token that can write to this app")
+    if pat:
+      with open(home + '/.clarifai_pat', 'w') as f:
+        f.write(pat)
+    else:
+      st.stop()
+
+  with open(home + '/.clarifai_pat') as f:
+    return f.read()
+
+
+pat = load_pat()
 
 local_css("./style.css")
 
@@ -116,6 +135,12 @@ API_INFO = {
 }
 
 # This must be within the display() function.
+
+# We need to use this post_input
+input_auth = ClarifaiAuthHelper.from_streamlit(st)
+input_auth._pat = pat
+input_stub = create_stub(input_auth)
+
 auth = ClarifaiAuthHelper.from_streamlit(st)
 stub = create_stub(auth)
 userDataObject = auth.get_user_app_id_proto()
@@ -323,7 +348,7 @@ def post_input(txt, concepts=[], metadata=None):
     req.inputs[0].data.concepts.extend(concepts)
   if metadata is not None:
     req.inputs[0].data.metadata.update(metadata)
-  response = stub.PostInputs(req)
+  response = input_stub.PostInputs(req)
   if response.status.code != status_code_pb2.SUCCESS:
     if response.inputs[0].status.details.find("duplicate ID") != -1:
       # If the input already exists, just return the input
@@ -334,7 +359,7 @@ def post_input(txt, concepts=[], metadata=None):
 
 def list_concepts():
   """Lists all concepts in the user's app."""
-  response = stub.ListConcepts(service_pb2.ListConceptsRequest(user_app_id=userDataObject,))
+  response = input_stub.ListConcepts(service_pb2.ListConceptsRequest(user_app_id=userDataObject,))
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("ListConcepts request failed: %r" % response)
   return response.concepts
@@ -342,7 +367,7 @@ def list_concepts():
 
 def post_concept(concept):
   """Posts a concept to the user's app."""
-  response = stub.PostConcepts(
+  response = input_stub.PostConcepts(
       service_pb2.PostConceptsRequest(
           user_app_id=userDataObject,
           concepts=[concept],
@@ -370,7 +395,7 @@ def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
     req.searches[0].query.filters.append(
         resources_pb2.Filter(
             annotation=resources_pb2.Annotation(data=resources_pb2.Data(metadata=metadata,))))
-  response = stub.PostAnnotationsSearches(req)
+  response = input_stub.PostAnnotationsSearches(req)
   # st.write(response)
 
   if response.status.code != status_code_pb2.SUCCESS:
@@ -382,7 +407,7 @@ def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
 def get_input(input_id):
   """Searches for inputs in the user's app."""
   req = service_pb2.GetInputRequest(user_app_id=userDataObject, input_id=input_id)
-  response = stub.GetInput(req)
+  response = input_stub.GetInput(req)
   # st.write(response)
 
   if response.status.code != status_code_pb2.SUCCESS:
