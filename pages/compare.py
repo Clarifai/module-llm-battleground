@@ -435,19 +435,32 @@ inp = st.text_area(
 
 
 def render_card(container, input, caller_id, completions):
+  c = "Completions"
+  if caller_id is not None:
+    c += f" (by: {caller_id})"
   container.markdown(
-      "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
+      f"<h1 style='text-align: center;font-size: 40px;color: #667085;'>{c}</h1>",
       unsafe_allow_html=True,
   )
 
   if input is not None:  # none for when using the text_input field.
-    container.subheader(f"Input ({caller_id})", anchor=False)
+    container.markdown(
+        f"<h4 style='text-align: center;font-size: 20px;color: #667085;'>Input</h4>",
+        unsafe_allow_html=True,
+    )
     container.code(input, language=None)  # metric(label="Input", value=txt)
 
-  container.subheader("Completions:", anchor=False)
+  container.markdown(
+      f"<h4 style='text-align: center;font-size: 20px;color: #667085;'>Completions</h4>",
+      unsafe_allow_html=True,
+  )
   for d in completions:
+    model_url = d['model'].split('/versions')[0]
+    container.markdown(
+        f"<a style='font-size: 12px;color: #667085;' href='{model_url}'>{model_url}</a>",
+        unsafe_allow_html=True,
+    )
     container.code(d['completion'], language=None)
-    ClarifaiStreamlitCSS.buttonlink(container, "Use Model", d['model'])
 
 
 if inp and models:
@@ -507,7 +520,7 @@ if inp and models:
         #     f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{complete_input.id}",
     })
 
-  render_card(st, inp, caller_id, completions)
+  render_card(st, inp, None, completions)
 
   c = pd.DataFrame(completions)
 
@@ -566,7 +579,8 @@ with st.expander("Recent Messages from Others"):
     previous_inputs.append({
         "input": txt,
     })
-    container = next(cols).container()
+    # container = next(cols).container()
+    container = st
     metadata = json_format.MessageToDict(input_hit.input.data.metadata)
     caller_id = metadata.get("caller", "zeiler")
     if caller_id == "":
@@ -580,6 +594,9 @@ with st.expander("Recent Messages from Others"):
     completions = completions_for_input(input_hit.input.id)
 
     render_card(container, txt, caller_id, completions)
+
+    if idx != len(input_search_response.hits) - 1:
+      container.divider()
 
     # for tup in completions:
     #   txt, model_url = tup
