@@ -378,6 +378,20 @@ def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
   return response
 
 
+@st.cache_resource
+def get_input(input_id):
+  """Searches for inputs in the user's app."""
+  req = service_pb2.GetInputRequest(user_app_id=userDataObject, input_id=input_id)
+  response = stub.GetInput(req)
+  # st.write(response)
+
+  if response.status.code != status_code_pb2.SUCCESS:
+    st.error(f"GetInput for input_id failed.")
+    st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
+    st.stop()
+  return response.input
+
+
 def get_text(url):
   """Download the raw text from the url"""
   response = requests.get(url)
@@ -411,15 +425,16 @@ if not concepts_ready_bool:
 
 input_search_response = search_inputs(concepts=[INPUT_CONCEPT], per_page=12)
 completion_search_response = search_inputs(concepts=[COMPLETION_CONCEPT], per_page=12)
-user_input_search_response = search_inputs(concepts=[INPUT_CONCEPT], per_page=12)
 
 query_params = st.experimental_get_query_params()
 inp = ""
 if "inp" in query_params:
-  inp = query_params["inp"][0]
+  input_id = query_params["inp"][0]
+  res = get_input(input_id)
+  inp = get_text(res.data.text.url)
 
 st.markdown(
-    "<h2 style='text-align: center; color: black;'>Try many LLMs at once, see what works best for you</h2>",
+    "<h2 style='text-align: center; color: black;'>Try many LLMs at once, see what works best and share</h2>",
     unsafe_allow_html=True,
 )
 
@@ -488,13 +503,16 @@ if inp and models:
   # )
 
   cols = st.columns(3)
+  h = ClarifaiUrlHelper(auth)
+  link = h.clarifai_url(userDataObject.user_id, userDataObject.app_id, "installed_module_versions",
+                        query_params["imv_id"][0])
+  link = f"{link}?inp={inp_input.id}"
 
   for mi, model in enumerate(models):
     col = cols[mi % len(cols)]
     container = col.container()
     prediction = run_model(inp, model)
     m = API_INFO[model]
-    h = ClarifaiUrlHelper(auth)
     model_url = h.clarifai_url(m["user_id"], m["app_id"], "models", m["model_id"])
     model_url_with_version = h.clarifai_url(m["user_id"], m["app_id"], "models", m["model_id"],
                                             m["version_id"])
@@ -538,18 +556,18 @@ if inp and models:
     cols[1].markdown(f"Completion: {selected_rows.iloc[1]['model']}")
     diff_viewer.diff_viewer(old_text=old_value, new_text=new_value, lang='none')
 
-# share on twitter.
-components.html("""
-        <a href="https://twitter.com/share?ref_src=twsrc%5Etfw" class="twitter-share-button"
-        data-text="Check this cool @streamlit module built on @clarifai to compare @openai GPT-4 vs @AnthropicAI Claude 2 head to head, try it yourself!"
-        data-url="https://clarifai.com/clarifai/genai/installed_module_versions/llm-battleground"
-        data-show-count="false">
-        data-size="Large"
-        data-hashtags="streamlit,python,clarifai,llm"
-        Tweet
-        </a>
-        <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
-    """)
+  # share on twitter.
+  components.html(f"""
+          <a href="https://twitter.com/share?ref_src=twsrc%5Etfw" class="twitter-share-button"
+          data-text="Check this cool @streamlit module built on @clarifai to compare @openai GPT-4 vs @AnthropicAI Claude 2 head to head, try it yourself!"
+          data-url={link}
+          data-show-count="false">
+          data-size="Large"
+          data-hashtags="streamlit,python,clarifai,llm"
+          Tweet
+          </a>
+          <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+      """)
 
 st.markdown(
     "Note: your messages and completions will be stored and shares publicly as recent messages")
