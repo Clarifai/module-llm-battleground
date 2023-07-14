@@ -1,0 +1,270 @@
+.old-new-portal-select {
+	box-sizing: border-box;
+	/* Auto layout */
+	display: flex;
+	flex-direction: row;
+	padding: 16px 20px; /*16px 20px*/
+	gap: 16px;
+
+	/*position: absolute;*/
+	width: 100%;
+	height: 66px;
+	/* background: #FAFAFF;                  /\**\/ */
+	border: 1px solid #6938EF;
+	/* Shadow/lg */
+	box-shadow: 0px 12px 16px -4px rgba(16, 24, 40, 0.1), 0px 4px 6px -2px rgba(16, 24, 40, 0.05);
+	border-radius: 8px;
+}
+
+.old-new-portal-select .portal-select-info {
+	width: 100%;
+	display: flex;
+	flex-direction:row;
+	align-items: center;
+	position: relative;
+}
+
+/* Tooltip container */
+.portal-select-info .tooltip {
+	width: 95%;
+  position: relative;
+  display: inline-block;
+  border-bottom: 1px #FFFFFF;
+}
+
+.tooltip #portal-select-text {
+	height: 1.2em;
+	/* Text Normal */
+	align-items: center;
+	font-family: 'Inter';
+	font-style: normal;
+	font-weight: 500;
+	font-size: 14px;
+	line-height: 1.2em;
+	margin-top: 0.7em;
+	display: inline-flex;
+	color: #344054;
+}
+
+/* Tooltip text */
+.tooltip .tooltiptext {
+  visibility: hidden;
+  width: 11em;
+  background-color: #E4E7EC;
+  color: #344054;
+  text-justify: auto;
+  padding: 6px 3px;
+  border-radius: 8px;
+
+  /* Position the tooltip text - see examples below! */
+  position: absolute;
+  z-index: 1;
+}
+/* Show the tooltip text when you mouse over the tooltip container */
+.tooltip:hover .tooltiptext {
+  visibility: visible;
+}
+
+.old-new-portal-select .portal-select-info .button-div {
+	display: inline-flex;
+	padding-left: 13em;
+	position: relative;
+}
+
+.button-div .button-content {
+	/* _Button base */
+	box-sizing: border-box;
+	/* Auto layout */
+	align-items: center;
+	text-align: center;
+	font-family: 'Inter';
+	font-style: normal;
+	font-weight: 500;
+	font-size: 14px;
+	width: 7.2em;
+	height: 2.5em;
+	background: #FFFFFF;
+	padding-top: 0.4em;
+	/* Gray/200 */
+	border: 1px solid #E4E7EC;
+	/* Shadow/xs */
+	box-shadow: 0px 1px 2px rgba(16, 24, 40, 0.05);
+	border-radius: 8px;
+	/* Inside auto layout */
+	flex: none;
+	order: 0;
+	flex-grow: 0;
+}
+
+.button-content:hover {
+	background-color:#E4E7EC;
+	color: #FFFF;
+}
+
+#eval-portal-link {
+	width: 104px;
+	height: 18px;
+	/* Text xs /Medium */
+	text-decoration: none;
+	font-family: 'Inter';
+	font-style: normal;
+	font-weight: 500;
+	font-size: 12px;
+	line-height: 18px;
+	color: #344054;
+	/* Inside auto layout */
+	flex: none;
+	order: 0;
+	flex-grow: 0;
+}
+
+a {
+	text-decoration: none;
+}
+
+h2[id="evaluation-results"] {
+	font-size: 24px;
+}
+
+h3[id="version-description"] {
+	font-size: 14px;
+}
+
+:not(p) > button {
+	font-size: 14px;
+	color: #667085;
+	/*font-family: 'Inter';
+	font-style: normal;*/
+	font-weight: 400;
+	flex: none;
+	order: 1;
+	align-self: stretch;
+	flex-grow: 0;
+}
+
+h3[id="version-id"] {
+	font-size: 14px;
+	color: #344054;
+
+	/* Inside auto layout */
+	flex: none;
+	order: 0;
+	flex-grow: 0;
+}
+
+h3[id="date-created"] {
+	font-size: 14px;
+	color: #344054;
+}
+
+h3[id="unique-concepts"] {
+	font-size: 14px;
+	color: #344054;
+}
+
+div[class="stSlider"] > label {
+	font-size: 14px;
+	color: #667085;
+	font-weight: 400;
+}
+
+div[class="row-widget stSelectbox"]{
+	font-size: 14px;
+	color: #667085;
+	font-weight: 400;
+}
+
+div[class="row-widget stButton"]{
+	align-items: center;
+	padding: 28px 10px;
+	gap: 8px;
+	box-sizing: border-box;
+	border-radius: 8px;
+}
+
+div[class="row-widget stButton"] > button {
+	font-size: 14px;
+	color: #FFFF;
+	font-weight: 400;
+}
+
+h3[id="evaluation-highlights"] {
+	font-size: 20px;
+	color: #101828;
+}
+
+div[data-testid="metric-container"] {
+	box-sizing: border-box;
+	padding: 10px;
+	gap: 8px;
+	/* height: 98px; */
+
+	display: flex;
+	flex-direction: column;
+	align-items: flex-start;
+	/* background: #F2F6FE; */
+
+	border: 1px solid #CCDCFB;
+	border-radius: 8px;
+
+}
+
+label[data-testid="stMetricLabel"] {
+	font-size: 14px;
+	color: #667085;
+}
+
+div[data-testid="stMetricValue"] {
+	font-size: 24px;
+	font-weight: 600;
+	letter-spacing: -0.02em;
+	color: #101828;
+}
+
+div[data-testid="stMetricValue"] > div {
+  white-space: break-spaces;
+}
+
+div[data-testid="stVerticalBlock"] > div > div[data-testid="stVerticalBlock"] {
+ border-radius: 8px !important;
+ border-color: #d0d5dd;
+ box-shadow: 0 1px 2px rgba(16,24,40,.05);
+ border: 1px solid #d0d5dd;
+ padding: 0 10px 0 10px;
+ /* background-color: #E8EEFA; */
+}
+
+div[data-testid="stVerticalBlock"] > div > div[data-testid="stVerticalBlock"] > div {
+    padding-right: 20px;
+}
+
+
+h3[id="table-chart-name"] {
+	font-size: 20px;
+	color: #101828;
+}
+
+thead tr th:first-child {
+	display:none
+}
+
+tbody th {
+	display:none
+}
+
+.row_heading.level0 {
+	display:none
+}
+
+.blank {
+	display:none
+}
+
+hr{
+	width: 100%;
+	height: 2px;
+	left: 80px;
+	top: 1px;
+	background: #f6f6f6;
+	background: #f6f6f6;
+}

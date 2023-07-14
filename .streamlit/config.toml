@@ -1,0 +1,7 @@
+[theme]
+base="light"
+primaryColor="#356dff"
+font="sans serif"
+
+[ui]
+hideSidebarNav=true
