@@ -10,6 +10,7 @@ from clarifai.auth.helper import ClarifaiAuthHelper
 from clarifai.client import create_stub
 from clarifai.listing.lister import ClarifaiResourceLister
 from clarifai.modules.css import ClarifaiStreamlitCSS
+from clarifai.urls.helper import ClarifaiUrlHelper
 from clarifai_grpc.grpc.api import resources_pb2, service_pb2
 from clarifai_grpc.grpc.api.status import status_code_pb2
 from google.protobuf import json_format
@@ -33,6 +34,9 @@ OPENAI = "openai: gpt-3.5-turbo"
 OPENAI_4 = "openai: gpt-4"
 AI21_A = "ai21: j2-jumbo-instruct"
 AI21_B = "ai21: j2-grande-instruct"
+ANTHROPIC1 = "anthropic: claude-v1"
+ANTHROPIC1INSTANT = "anthropic: claude-instant"
+ANTHROPIC2 = "anthropic: claude-v2"
 # AI21_C = "ai21: j2-jumbo"
 # AI21_D = "ai21: j2-grande"
 # AI21_E = "ai21: j2-large"
@@ -50,13 +54,13 @@ API_INFO = {
     },
     OPENAI: {
         "user_id": "openai",
-        "app_id": "chat_completion",
+        "app_id": "chat-completion",
         "model_id": "GPT-3_5-turbo",
         "version_id": "8ea3880d08a74dc0b39500b99dfaa376",
     },
     OPENAI_4: {
         "user_id": "openai",
-        "app_id": "chat_completion",
+        "app_id": "chat-completion",
         "model_id": "GPT-4",
         "version_id": "ad16eda6ac054796bf9f348ab6733c72",
     },
@@ -71,6 +75,24 @@ API_INFO = {
         "app_id": "complete",
         "model_id": "j2-grande-instruct",
         "version_id": "620672b5d57043dba8f74d5514cb18ed",
+    },
+    ANTHROPIC1: {
+        "user_id": "anthropic",
+        "app_id": "completion",
+        "model_id": "claude-v1",
+        "version_id": "3a571e774fac465f84d9efcadf0559df",
+    },
+    ANTHROPIC1INSTANT: {
+        "user_id": "anthropic",
+        "app_id": "completion",
+        "model_id": "claude-instant",
+        "version_id": "0363c83d073947d4ba2f76df394dd28d",
+    },
+    ANTHROPIC2: {
+        "user_id": "anthropic",
+        "app_id": "completion",
+        "model_id": "claude-v2",
+        "version_id": "cd8f314bf81f4c24b006af002e827122",
     },
     # AI21_C: {
     #     "user_id": "ai21",
@@ -92,16 +114,6 @@ API_INFO = {
     # },
 }
 
-Examples = [
-    {
-        "title": "Snoop Doog Summary",
-        "template": """Rewrite the following paragraph as a rap by Snoop Dog.
-{input}
-""",
-        "categories": ["Long Form", "Creative"],
-    },
-]
-
 # This must be within the display() function.
 auth = ClarifaiAuthHelper.from_streamlit(st)
 stub = create_stub(auth)
@@ -109,9 +121,11 @@ userDataObject = auth.get_user_app_id_proto()
 lister = ClarifaiResourceLister(stub, auth.user_id, auth.app_id, page_size=16)
 
 st.markdown(
-    "<h1 style='text-align: center; color: black;'>LLM Comparison Toolbox 🧰</h1>",
+    "<h1 style='text-align: center; color: black;'>LLM Battleground</h1>",
     unsafe_allow_html=True,
 )
+
+# st.markdown("Test out LLMs on a variety of tasks. See how they perform!")
 
 
 def get_user():
@@ -270,10 +284,13 @@ def run_workflow(input_text, workflow):
 
 @st.cache_resource
 def run_model(input_text, model):
+
+  m = API_INFO[model]
+
   response = stub.PostModelOutputs(
       service_pb2.PostModelOutputsRequest(
-          user_app_id=userDataObject,
-          model_id=model.id,
+          user_app_id=resources_pb2.UserAppIDSet(user_id=m['user_id'], app_id=m['app_id']),
+          model_id=m['model_id'],
           inputs=[
               resources_pb2.Input(
                   data=resources_pb2.Data(text=resources_pb2.Text(raw=input_text,),),),
@@ -281,8 +298,6 @@ def run_model(input_text, model):
       ))
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("PostModelOutputs request failed: %r" % response)
-  else:
-    print(f"Model {model.id} ran successfully")
 
   if DEBUG:
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
@@ -393,183 +408,92 @@ if not concepts_ready_bool:
   st.error("Need to add all the required concepts to the app before continuing.")
   st.stop()
 
-prompt_search_response = search_inputs(concepts=[PROMPT_CONCEPT], per_page=12)
+input_search_response = search_inputs(concepts=[INPUT_CONCEPT], per_page=12)
 completion_search_response = search_inputs(concepts=[COMPLETION_CONCEPT], per_page=12)
 user_input_search_response = search_inputs(concepts=[INPUT_CONCEPT], per_page=12)
 
-st.markdown(
-    "<h2 style='text-align: center; color: #667085;'>Recent prompts from others</h2>",
-    unsafe_allow_html=True,
-)
-
-st.markdown(
-    "<div style='text-align: center;'>Hover to copy and try them out yourself!</div>",
-    unsafe_allow_html=True,
-)
-
-
-def create_next_completion_gen(completion_search_response, user_input_search_response, input_id):
-  for completion_hit in completion_search_response.hits:
-    if completion_hit.input.data.metadata.fields["input_id"].string_value == input_id:
-      for user_input_hit in user_input_search_response.hits:
-        if (completion_hit.input.data.metadata.fields["user_input_id"].string_value ==
-            user_input_hit.input.id):
-          yield completion_hit.input, user_input_hit.input
-
-
-previous_prompts = []
-
-# Check if gen dict is in session state
-if "completion_gen_dict" not in st.session_state:
-  st.session_state.completion_gen_dict = {}
-  st.session_state.first_run = True
-
-completion_gen_dict = st.session_state.completion_gen_dict
-
-cols = cycle(st.columns(3))
-for idx, prompt_hit in enumerate(prompt_search_response.hits):
-  txt = get_text(prompt_hit.input.data.text.url)
-  previous_prompts.append({
-      "prompt": txt,
-  })
-  container = next(cols).container()
-  metadata = json_format.MessageToDict(prompt_hit.input.data.metadata)
-  caller_id = metadata.get("caller", "zeiler")
-  if caller_id == "":
-    caller_id = "zeiler"
-
-  if len(completion_gen_dict) < len(prompt_search_response.hits):
-    completion_gen_dict[prompt_hit.input.id] = create_next_completion_gen(
-        completion_search_response, user_input_search_response, prompt_hit.input.id)
-
-  container.subheader(f"Prompt ({caller_id})", anchor=False)
-  container.code(txt)  # metric(label="Prompt", value=txt)
-
-  container.subheader("Answer", anchor=False)
-
-  # Create persistent placeholders to update when user clicks next
-  st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"] = container.empty()
-  st.session_state[f"placeholder_user_input_{prompt_hit.input.id}"] = container.empty()
-  st.session_state[f"placeholder_completion{prompt_hit.input.id}"] = container.empty()
-
-  if container.button("Next", key=prompt_hit.input.id):
-    try:
-      completion_input, user_input = next(completion_gen_dict[prompt_hit.input.id])
-
-      completion_text = get_text(completion_input.data.text.url)
-      user_input_text = get_text(user_input.data.text.url)
-      model_url = completion_input.data.metadata.fields["model"].string_value
-
-      st.session_state[f"placeholder_model_name_{prompt_hit.input.id}"].markdown(
-          f"Generated by {model_url}")
-      st.session_state[f"placeholder_user_input_{prompt_hit.input.id}"].markdown(
-          f"**Input**:\n {user_input_text}")
-      st.session_state[f"placeholder_completion{prompt_hit.input.id}"].markdown(
-          f"**Completion**:\n {completion_text}")
-    except StopIteration:
-      completion_gen_dict[prompt_hit.input.id] = create_next_completion_gen(
-          completion_search_response, user_input_search_response, prompt_hit.input.id)
-      st.warning("No more completions available. Starting from the beginning.")
-
 query_params = st.experimental_get_query_params()
-prompt = ""
-if "prompt" in query_params:
-  prompt = query_params["prompt"][0]
+inp = ""
+if "inp" in query_params:
+  inp = query_params["inp"][0]
 
-st.subheader("Test out new prompt templates with various LLM models")
-
-model_names = [OPENAI, OPENAI_4, COHERE, AI21_A, AI21_B]  # , AI21_C, AI21_D, AI21_E]
-models = st.multiselect("Select the model(s) you want to use:", model_names)
-
-prompt = st.text_area(
-    "Enter your prompt template to test out here:",
-    placeholder="Explain {data.text.raw} to a 5 yeard old.",
-    value=prompt,
-    help=
-    "You need to place a placeholder {data.text.raw} in your prompt template. If that is in the middle then two prefix and suffix prompt models will be added to the workflow.",
+st.markdown(
+    "<h2 style='text-align: center; color: black;'>Try many LLMs at once, see what works best for you</h2>",
+    unsafe_allow_html=True,
 )
 
-if prompt and models:
-  if prompt.find("{data.text.raw}") == -1:
-    st.error("You need to place a placeholder {data.text.raw} in your prompt template.")
-    st.stop()
+model_names = [OPENAI, OPENAI_4, COHERE, AI21_A, AI21_B, ANTHROPIC1, ANTHROPIC1INSTANT, ANTHROPIC2]
+models = st.multiselect(
+    "Select the LLMs you want to use:", model_names, default=[OPENAI_4, ANTHROPIC2])
 
+inp = st.text_area(
+    " ",
+    placeholder="Send a message to the LLMs",
+    value=inp,
+    help="Genenerate outputs from the LLMs using this input.")
+
+if inp and models:
   if len(models) == 0:
     st.error("You need to select at least one model.")
     st.stop()
 
-  prompt_model, workflows = create_workflows(prompt, models)
-
-input = st.text_area(
-    "Try out your new workflow by providing some input:",
-    help=
-    "This will be used as the input to the {data.text.raw} placeholder in your prompt template.",
-)
-
-if prompt and models and input:
   concepts = list_concepts()
   concept_ids = [c.id for c in concepts]
-  for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
+  for concept in [INPUT_CONCEPT, COMPLETION_CONCEPT]:
     if concept.id not in concept_ids:
       post_concept(concept)
       st.success(f"Added {concept.id} concept")
 
-  prompt_input = post_input(
-      prompt,
-      concepts=[PROMPT_CONCEPT],
-      metadata={"tags": ["prompt"],
+  inp_input = post_input(
+      inp,
+      concepts=[INPUT_CONCEPT],
+      metadata={"tags": ["input"],
                 "caller": caller_id},
   )
 
-  # Add the input as an inputs in the app.
-  user_input = post_input(
-      input,
-      concepts=[INPUT_CONCEPT],
-      metadata={"input_id": prompt_input.id,
-                "caller": caller_id,
-                "tags": ["input"]},
-  )
   st.markdown(
       "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
       unsafe_allow_html=True,
   )
-  for workflow in workflows:
-    container = st.container()
-    container.write(prompt.replace("{data.text.raw}", input))
-    prediction = run_workflow(input, workflow)
-    model_url = f"https://clarifai.com/{workflow.nodes[1].model.user_id}/{workflow.nodes[1].model.app_id}/models/{workflow.nodes[1].model.id}"
-    model_url_with_version = f"{model_url}/versions/{workflow.nodes[1].model.model_version.id}"
+
+  cols = st.columns(3)
+
+  for mi, model in enumerate(models):
+    col = cols[mi % len(cols)]
+    container = col.container()
+    prediction = run_model(inp, model)
+    m = API_INFO[model]
+    h = ClarifaiUrlHelper(auth)
+    model_url = h.clarifai_url(m["user_id"], m["app_id"], "models", m["model_id"])
+    model_url_with_version = h.clarifai_url(m["user_id"], m["app_id"], "models", m["model_id"],
+                                            m["version_id"])
     container.write(f"Completion from {model_url}:")
 
-    completion = prediction.results[0].outputs[1].data.text.raw
-    container.code(completion)
+    completion = prediction.outputs[0].data.text.raw
+    container.write(completion)
     complete_input = post_input(
         completion,
         concepts=[COMPLETION_CONCEPT],
         metadata={
-            "input_id": prompt_input.id,
-            "user_input_id": user_input.id,
+            "input_id": inp_input.id,
             "tags": ["completion"],
             "model": model_url_with_version,
             "caller": caller_id,
         },
     )
     completions.append({
-        "select":
-            False,
-        "model":
-            model_url,
-        "completion":
-            completion.strip(),
-        "input_id":
-            f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{complete_input.id}",
+        "select": True,
+        "model": model_url,
+        "completion": completion.strip(),
+        # "input_id":
+        #     f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{complete_input.id}",
     })
 
   c = pd.DataFrame(completions)
-  edited_df = st.data_editor(c, disabled=set(completions[0].keys()) - set(["select"]))
 
-  st.subheader("Diff completions")
-  st.markdown("Select two completions to diff")
+  st.subheader("Show differences")
+  st.markdown("Select the completions you wish to compare.")
+  edited_df = st.data_editor(c, disabled=set(completions[0].keys()) - set(["select"]))
   selected_rows = edited_df.loc[edited_df['select']]
   if len(selected_rows) != 2:
     st.warning("Please select two completions to diff")
@@ -581,9 +505,57 @@ if prompt and models and input:
     cols[1].markdown(f"Completion: {selected_rows.iloc[1]['model']}")
     diff_viewer.diff_viewer(old_text=old_value, new_text=new_value, lang='none')
 
-cleanup = st.button("Cleanup workflows and prompt models")
-if cleanup:
-  # Cleanup so we don't have tons of junk in this app
-  for workflow in workflows:
-    delete_workflow(workflow)
-  delete_model(prompt_model)
+st.markdown(
+    "Note: your messages and completions will be stored and shares publicly as recent messages")
+
+st.button("Request a feature in this module")
+st.button("Learn how to build your own module")
+st.button("See how this module was built")
+st.button("Share these generations")
+
+with st.expander("Recent Messages from Others"):
+
+  st.markdown(
+      "<div style='text-align: center;'>Hover to copy and try them out yourself!</div>",
+      unsafe_allow_html=True,
+  )
+
+  @st.cache_resource
+  def completions_for_input(input_id):
+    completions = []
+    for completion_hit in completion_search_response.hits:
+      if completion_hit.input.data.metadata.fields["input_id"].string_value == input_id:
+        txt = get_text(completion_hit.input.data.text.url)
+        model_url = completion_hit.input.data.metadata.fields["model"].string_value
+        completions.append((txt, model_url))
+    return completions
+
+  previous_inputs = []
+
+  st.json(json_format.MessageToJson(completion_search_response, preserving_proto_field_name=True))
+
+  cols = cycle(st.columns(3))
+  for idx, input_hit in enumerate(input_search_response.hits):
+    txt = get_text(input_hit.input.data.text.url)
+    previous_inputs.append({
+        "input": txt,
+    })
+    container = next(cols).container()
+    metadata = json_format.MessageToDict(input_hit.input.data.metadata)
+    caller_id = metadata.get("caller", "zeiler")
+    if caller_id == "":
+      caller_id = "zeiler"
+
+    container.subheader(f"Input ({caller_id})", anchor=False)
+    container.code(txt)  # metric(label="Input", value=txt)
+
+    container.subheader("Completions:", anchor=False)
+
+    completions = completions_for_input(input_hit.input.id)
+
+    container.write(completions)
+
+st.markdown(
+    "<h3 style='text-align: center; color: black;'>Built on Clarifai with 💙 </h3>",
+    unsafe_allow_html=True,
+)
