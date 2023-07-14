@@ -623,13 +623,15 @@ with st.expander("Recent Messages from Others"):
     # container.write(completions)
 
 cols = st.columns(3)
-ClarifaiStreamlitCSS.buttonlink(cols[1], "See how this was built",
-                                "https://github.com/Clarifai/module-llm-battleground")
-ClarifaiStreamlitCSS.buttonlink(cols[0], "Learn how to build your own module",
-                                "https://docs.clarifai.com/portal-guide/modules/create-install")
-ClarifaiStreamlitCSS.buttonlink(
-    cols[2], "Request a feature",
-    "https://join.slack.com/t/clarifaicommunity/shared_invite/zt-1jehqesme-l60djcd3c_4a1eCV~uPUjQ")
+cols[0].markdown(
+    "<a href='https://github.com/Clarifai/module-llm-battleground'><img style='height:24px;' src='https://github.githubassets.com/images/modules/logos_page/GitHub-Mark.png'/> See how this module was built </a>",
+    unsafe_allow_html=True)
+cols[1].markdown(
+    "<a href='https://docs.clarifai.com/portal-guide/modules/create-install'>📚Learn how to build your own module </a>",
+    unsafe_allow_html=True)
+cols[2].markdown(
+    "<a href='https://join.slack.com/t/clarifaicommunity/shared_invite/zt-1jehqesme-l60djcd3c_4a1eCV~uPUjQ'><img src='https://www.clarifai.com/hubfs/slack-icon.svg'/> Request a feature</a>",
+    unsafe_allow_html=True)
 
 st.markdown(
     "<h3 style='text-align: center; color: black;'>Built on Clarifai with 💙 </h3>",
