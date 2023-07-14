@@ -6,6 +6,7 @@ import diff_viewer
 import pandas as pd
 import requests
 import streamlit as st
+import streamlit.components.v1 as components
 from clarifai.auth.helper import ClarifaiAuthHelper
 from clarifai.client import create_stub
 from clarifai.listing.lister import ClarifaiResourceLister
@@ -29,14 +30,14 @@ local_css("./style.css")
 DEBUG = False
 completions = []
 
-COHERE = "cohere: generate-base"
-OPENAI = "openai: gpt-3.5-turbo"
-OPENAI_4 = "openai: gpt-4"
-AI21_A = "ai21: j2-jumbo-instruct"
-AI21_B = "ai21: j2-grande-instruct"
-ANTHROPIC1 = "anthropic: claude-v1"
-ANTHROPIC1INSTANT = "anthropic: claude-instant"
-ANTHROPIC2 = "anthropic: claude-v2"
+COHERE = "generate-base: cohere"
+OPENAI = "gpt-3.5-turbo: openai"
+OPENAI_4 = "gpt-4: openai: "
+AI21_A = "j2-jumbo-instruct: ai21"
+AI21_B = "j2-grande-instruct: ai21"
+ANTHROPIC1 = "claude 1: anthropic"
+ANTHROPIC1INSTANT = "claude-instant: anthropic"
+ANTHROPIC2 = "claude 2: anthropic: "
 # AI21_C = "ai21: j2-jumbo"
 # AI21_D = "ai21: j2-grande"
 # AI21_E = "ai21: j2-large"
@@ -432,6 +433,23 @@ inp = st.text_area(
     value=inp,
     help="Genenerate outputs from the LLMs using this input.")
 
+
+def render_card(container, input, caller_id, completions):
+  container.markdown(
+      "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
+      unsafe_allow_html=True,
+  )
+
+  if input is not None:  # none for when using the text_input field.
+    container.subheader(f"Input ({caller_id})", anchor=False)
+    container.code(input, language=None)  # metric(label="Input", value=txt)
+
+  container.subheader("Completions:", anchor=False)
+  for d in completions:
+    container.code(d['completion'], language=None)
+    ClarifaiStreamlitCSS.buttonlink(container, "Use Model", d['model'])
+
+
 if inp and models:
   if len(models) == 0:
     st.error("You need to select at least one model.")
@@ -451,10 +469,10 @@ if inp and models:
                 "caller": caller_id},
   )
 
-  st.markdown(
-      "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
-      unsafe_allow_html=True,
-  )
+  # st.markdown(
+  #     "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
+  #     unsafe_allow_html=True,
+  # )
 
   cols = st.columns(3)
 
@@ -467,10 +485,10 @@ if inp and models:
     model_url = h.clarifai_url(m["user_id"], m["app_id"], "models", m["model_id"])
     model_url_with_version = h.clarifai_url(m["user_id"], m["app_id"], "models", m["model_id"],
                                             m["version_id"])
-    container.write(f"Completion from {model_url}:")
+    # container.write(f"Completion from {model_url}:")
 
     completion = prediction.outputs[0].data.text.raw
-    container.write(completion)
+    # container.write(completion)
     complete_input = post_input(
         completion,
         concepts=[COMPLETION_CONCEPT],
@@ -489,6 +507,8 @@ if inp and models:
         #     f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{complete_input.id}",
     })
 
+  render_card(st, inp, caller_id, completions)
+
   c = pd.DataFrame(completions)
 
   st.subheader("Show differences")
@@ -505,13 +525,21 @@ if inp and models:
     cols[1].markdown(f"Completion: {selected_rows.iloc[1]['model']}")
     diff_viewer.diff_viewer(old_text=old_value, new_text=new_value, lang='none')
 
+# share on twitter.
+components.html("""
+        <a href="https://twitter.com/share?ref_src=twsrc%5Etfw" class="twitter-share-button"
+        data-text="Check this cool @streamlit module built on @clarifai to compare @openai GPT-4 vs @AnthropicAI Claude 2 head to head, try it yourself!"
+        data-url="https://clarifai.com/clarifai/genai/installed_module_versions/llm-battleground"
+        data-show-count="false">
+        data-size="Large"
+        data-hashtags="streamlit,python,clarifai,llm"
+        Tweet
+        </a>
+        <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+    """)
+
 st.markdown(
     "Note: your messages and completions will be stored and shares publicly as recent messages")
-
-st.button("Request a feature in this module")
-st.button("Learn how to build your own module")
-st.button("See how this module was built")
-st.button("Share these generations")
 
 with st.expander("Recent Messages from Others"):
 
@@ -527,12 +555,10 @@ with st.expander("Recent Messages from Others"):
       if completion_hit.input.data.metadata.fields["input_id"].string_value == input_id:
         txt = get_text(completion_hit.input.data.text.url)
         model_url = completion_hit.input.data.metadata.fields["model"].string_value
-        completions.append((txt, model_url))
+        completions.append({"completion": txt, "model": model_url})
     return completions
 
   previous_inputs = []
-
-  st.json(json_format.MessageToJson(completion_search_response, preserving_proto_field_name=True))
 
   cols = cycle(st.columns(3))
   for idx, input_hit in enumerate(input_search_response.hits):
@@ -546,14 +572,29 @@ with st.expander("Recent Messages from Others"):
     if caller_id == "":
       caller_id = "zeiler"
 
-    container.subheader(f"Input ({caller_id})", anchor=False)
-    container.code(txt)  # metric(label="Input", value=txt)
+    # container.subheader(f"Input ({caller_id})", anchor=False)
+    # container.code(txt, language=None)  # metric(label="Input", value=txt)
 
-    container.subheader("Completions:", anchor=False)
+    # container.subheader("Completions:", anchor=False)
 
     completions = completions_for_input(input_hit.input.id)
 
-    container.write(completions)
+    render_card(container, txt, caller_id, completions)
+
+    # for tup in completions:
+    #   txt, model_url = tup
+    #   container.code(txt, language=None)
+    #   ClarifaiStreamlitCSS.buttonlink(container, "Use Model", model_url)
+    # container.write(completions)
+
+cols = st.columns(3)
+ClarifaiStreamlitCSS.buttonlink(cols[1], "See how this was built",
+                                "https://github.com/Clarifai/module-llm-battleground")
+ClarifaiStreamlitCSS.buttonlink(cols[0], "Learn how to build your own module",
+                                "https://docs.clarifai.com/portal-guide/modules/create-install")
+ClarifaiStreamlitCSS.buttonlink(
+    cols[2], "Request a feature",
+    "https://join.slack.com/t/clarifaicommunity/shared_invite/zt-1jehqesme-l60djcd3c_4a1eCV~uPUjQ")
 
 st.markdown(
     "<h3 style='text-align: center; color: black;'>Built on Clarifai with 💙 </h3>",
