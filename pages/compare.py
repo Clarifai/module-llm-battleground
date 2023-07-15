@@ -27,7 +27,6 @@ def local_css(file_name):
 
 
 # Note(zeiler): we need to store a special PAT to post inputs.
-@st.cache_resource(experimental_allow_widgets=True)
 def load_pat():
   home = os.environ['HOME']
   if not os.path.exists(home + '/.clarifai_pat'):
@@ -350,10 +349,12 @@ def post_input(txt, concepts=[], metadata=None):
     req.inputs[0].data.metadata.update(metadata)
   response = input_stub.PostInputs(req)
   if response.status.code != status_code_pb2.SUCCESS:
-    if response.inputs[0].status.details.find("duplicate ID") != -1:
+    if len(response.inputs) and response.inputs[0].status.details.find("duplicate ID") != -1:
       # If the input already exists, just return the input
       return req.inputs[0]
-    raise Exception("PostInputs request failed: %r" % response)
+    st.error("Storing the input failed.")
+    st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
+    st.stop()
   return response.inputs[0]
 
 
