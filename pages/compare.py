@@ -1,7 +1,9 @@
 import hashlib
 import os
+import time
 import uuid
 from itertools import cycle
+from typing import Dict, Iterator, List
 
 import diff_viewer
 import pandas as pd
@@ -9,13 +11,14 @@ import requests
 import streamlit as st
 import streamlit.components.v1 as components
 from clarifai.auth.helper import ClarifaiAuthHelper
-from clarifai.client import create_stub
+from clarifai.client import V2Stub, create_stub
 from clarifai.listing.lister import ClarifaiResourceLister
 from clarifai.modules.css import ClarifaiStreamlitCSS
 from clarifai.urls.helper import ClarifaiUrlHelper
 from clarifai_grpc.grpc.api import resources_pb2, service_pb2
 from clarifai_grpc.grpc.api.status import status_code_pb2
 from google.protobuf import json_format
+from google.protobuf.json_format import MessageToDict
 
 st.set_page_config(layout="wide")
 ClarifaiStreamlitCSS.insert_default_css(st)
@@ -40,6 +43,58 @@ def load_pat():
   with open(home + '/.clarifai_pat') as f:
     return f.read()
 
+def models_generator(stub: V2Stub,
+                     page_size: int = 64,
+                     filter_by: dict = {},) -> Iterator[resources_pb2.Model]:
+  """
+    Iterator for all the community models based on specified conditions.
+
+    Args:
+      stub: client stub.
+      page_size: the pagination size to use while iterating.
+      filter_by: a dictionary of filters to apply to the list of models.
+
+    Returns:
+      models: a list of Model protos for all the community models.
+    """
+  userDataObject = resources_pb2.UserAppIDSet()
+  model_success_status = {status_code_pb2.SUCCESS}
+
+  page = 1
+  while True:
+    response = stub.ListModels(
+        service_pb2.ListModelsRequest(user_app_id=userDataObject, page=page, per_page=page_size, **filter_by),)
+
+    if response.status.code not in model_success_status:
+      raise Exception("ListModels failed with response %r" % response)
+    if len(response.models) == 0:
+      break
+    for item in response.models:
+      yield item
+    page += 1
+
+def list_models(stub: V2Stub,
+                filter_by: dict = {},)-> Dict[str, Dict[str, str]]:
+    """
+      Lists all the community models based on specified conditions.
+
+      Args:
+        stub: client stub.
+        filter_by: a dictionary of filters to apply to the list of models.
+
+      Returns:
+        API_INFO: dictionary of models information.
+    """
+    API_INFO = {}
+    for model_proto in models_generator(stub=stub, filter_by=filter_by):
+        model_dict = MessageToDict(model_proto)
+        try:
+            API_INFO[f"{model_dict['id']}: {model_dict['userId']}"] = dict(user_id=model_dict["userId"],
+                                                                            app_id=model_dict["appId"], model_id=model_dict["id"],
+                                                                            version_id=model_dict["modelVersion"]["id"])
+        except IndexError:
+            pass
+    return API_INFO
 
 pat = load_pat()
 
@@ -48,90 +103,9 @@ local_css("./style.css")
 DEBUG = False
 completions = []
 
-COHERE = "generate-base: cohere"
-OPENAI = "gpt-3.5-turbo: openai"
-OPENAI_4 = "gpt-4: openai: "
-AI21_A = "j2-jumbo-instruct: ai21"
-AI21_B = "j2-grande-instruct: ai21"
-ANTHROPIC1 = "claude 1: anthropic"
-ANTHROPIC1INSTANT = "claude-instant: anthropic"
-ANTHROPIC2 = "claude 2: anthropic: "
-# AI21_C = "ai21: j2-jumbo"
-# AI21_D = "ai21: j2-grande"
-# AI21_E = "ai21: j2-large"
-
 PROMPT_CONCEPT = resources_pb2.Concept(id="prompt", value=1.0)
 INPUT_CONCEPT = resources_pb2.Concept(id="input", value=1.0)
 COMPLETION_CONCEPT = resources_pb2.Concept(id="completion", value=1.0)
-
-API_INFO = {
-    COHERE: {
-        "user_id": "cohere",
-        "app_id": "generate",
-        "model_id": "generate-base",
-        "version_id": "07bf79a08a45492d8be5c49085244f1c",
-    },
-    OPENAI: {
-        "user_id": "openai",
-        "app_id": "chat-completion",
-        "model_id": "GPT-3_5-turbo",
-        "version_id": "8ea3880d08a74dc0b39500b99dfaa376",
-    },
-    OPENAI_4: {
-        "user_id": "openai",
-        "app_id": "chat-completion",
-        "model_id": "GPT-4",
-        "version_id": "ad16eda6ac054796bf9f348ab6733c72",
-    },
-    AI21_A: {
-        "user_id": "ai21",
-        "app_id": "complete",
-        "model_id": "j2-jumbo-instruct",
-        "version_id": "d0b0d58b09c947d38bffc0e65b3b1a1b",
-    },
-    AI21_B: {
-        "user_id": "ai21",
-        "app_id": "complete",
-        "model_id": "j2-grande-instruct",
-        "version_id": "620672b5d57043dba8f74d5514cb18ed",
-    },
-    ANTHROPIC1: {
-        "user_id": "anthropic",
-        "app_id": "completion",
-        "model_id": "claude-v1",
-        "version_id": "3a571e774fac465f84d9efcadf0559df",
-    },
-    ANTHROPIC1INSTANT: {
-        "user_id": "anthropic",
-        "app_id": "completion",
-        "model_id": "claude-instant",
-        "version_id": "0363c83d073947d4ba2f76df394dd28d",
-    },
-    ANTHROPIC2: {
-        "user_id": "anthropic",
-        "app_id": "completion",
-        "model_id": "claude-v2",
-        "version_id": "cd8f314bf81f4c24b006af002e827122",
-    },
-    # AI21_C: {
-    #     "user_id": "ai21",
-    #     "app_id": "complete",
-    #     "model_id": "j2-jumbo",
-    #     "version_id": "9bb740d588d743228368a53ac61a3768",
-    # },
-    # AI21_D: {
-    #     "user_id": "ai21",
-    #     "app_id": "complete",
-    #     "model_id": "j2-grande",
-    #     "version_id": "60c292033a4643609b9c553a45f34f24",
-    # },
-    # AI21_E: {
-    #     "user_id": "ai21",
-    #     "app_id": "complete",
-    #     "model_id": "j2-large",
-    #     "version_id": "27122459e3eb44eb9f872afee94d71ae",
-    # },
-}
 
 # This must be within the display() function.
 
@@ -144,6 +118,12 @@ auth = ClarifaiAuthHelper.from_streamlit(st)
 stub = create_stub(auth)
 userDataObject = auth.get_user_app_id_proto()
 lister = ClarifaiResourceLister(stub, auth.user_id, auth.app_id, page_size=16)
+
+filter_by = dict(
+    query="LLM",
+    model_type_id="text-to-text",
+)
+API_INFO = list_models(stub, filter_by=filter_by)
 
 st.markdown(
     "<h1 style='text-align: center; color: black;'>LLM Battleground</h1>",
@@ -311,18 +291,28 @@ def run_workflow(input_text, workflow):
 def run_model(input_text, model):
 
   m = API_INFO[model]
+  start_time = time.time()
+  while True:
 
-  response = stub.PostModelOutputs(
-      service_pb2.PostModelOutputsRequest(
-          user_app_id=resources_pb2.UserAppIDSet(user_id=m['user_id'], app_id=m['app_id']),
-          model_id=m['model_id'],
-          inputs=[
-              resources_pb2.Input(
-                  data=resources_pb2.Data(text=resources_pb2.Text(raw=input_text,),),),
-          ],
-      ))
-  if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("PostModelOutputs request failed: %r" % response)
+    response = stub.PostModelOutputs(
+        service_pb2.PostModelOutputsRequest(
+            user_app_id=resources_pb2.UserAppIDSet(user_id=m['user_id'], app_id=m['app_id']),
+            model_id=m['model_id'],
+            inputs=[
+                resources_pb2.Input(
+                    data=resources_pb2.Data(text=resources_pb2.Text(raw=input_text,),),),
+            ],
+        ))
+
+    if response.outputs[0].status.code == status_code_pb2.MODEL_DEPLOYING and time.time() - start_time < 60*10:
+      st.info("Model is still deploying, please wait...")
+      time.sleep(5)
+      continue
+
+    if response.status.code != status_code_pb2.SUCCESS:
+      raise Exception("PostModelOutputs request failed: %r" % response)
+    else:
+      break
 
   if DEBUG:
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
@@ -464,9 +454,9 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-model_names = [OPENAI, OPENAI_4, COHERE, AI21_A, AI21_B, ANTHROPIC1, ANTHROPIC1INSTANT, ANTHROPIC2]
+model_names = list(API_INFO.keys())
 models = st.multiselect(
-    "Select the LLMs you want to use:", model_names, default=[OPENAI_4, ANTHROPIC2])
+    "Select the LLMs you want to use:", model_names, default=['GPT-4: openai', 'claude-v2: anthropic'])
 
 inp = st.text_area(
     " ",
