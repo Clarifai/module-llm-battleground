@@ -1,5 +1,6 @@
 import hashlib
 import os
+import time
 import uuid
 from itertools import cycle
 from typing import Dict, Iterator, List
@@ -73,14 +74,12 @@ def models_generator(stub: V2Stub,
     page += 1
 
 def list_models(stub: V2Stub,
-                toolkits: List[str] = ["Cohere", "Anthropic", "OpenAI", "AI21"],
                 filter_by: dict = {},)-> Dict[str, Dict[str, str]]:
     """
       Lists all the community models based on specified conditions.
 
       Args:
         stub: client stub.
-        toolkits: a list of toolkits to filter the models by.
         filter_by: a dictionary of filters to apply to the list of models.
 
       Returns:
@@ -90,10 +89,9 @@ def list_models(stub: V2Stub,
     for model_proto in models_generator(stub=stub, filter_by=filter_by):
         model_dict = MessageToDict(model_proto)
         try:
-            if model_dict.get("toolkits", "")[0] in toolkits:
-                API_INFO[f"{model_dict['id']}: {model_dict['userId']}"] = dict(user_id=model_dict["userId"],
-                                                                               app_id=model_dict["appId"], model_id=model_dict["id"],
-                                                                               version_id=model_dict["modelVersion"]["id"])
+            API_INFO[f"{model_dict['id']}: {model_dict['userId']}"] = dict(user_id=model_dict["userId"],
+                                                                            app_id=model_dict["appId"], model_id=model_dict["id"],
+                                                                            version_id=model_dict["modelVersion"]["id"])
         except IndexError:
             pass
     return API_INFO
@@ -293,18 +291,28 @@ def run_workflow(input_text, workflow):
 def run_model(input_text, model):
 
   m = API_INFO[model]
+  start_time = time.time()
+  while True:
 
-  response = stub.PostModelOutputs(
-      service_pb2.PostModelOutputsRequest(
-          user_app_id=resources_pb2.UserAppIDSet(user_id=m['user_id'], app_id=m['app_id']),
-          model_id=m['model_id'],
-          inputs=[
-              resources_pb2.Input(
-                  data=resources_pb2.Data(text=resources_pb2.Text(raw=input_text,),),),
-          ],
-      ))
-  if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("PostModelOutputs request failed: %r" % response)
+    response = stub.PostModelOutputs(
+        service_pb2.PostModelOutputsRequest(
+            user_app_id=resources_pb2.UserAppIDSet(user_id=m['user_id'], app_id=m['app_id']),
+            model_id=m['model_id'],
+            inputs=[
+                resources_pb2.Input(
+                    data=resources_pb2.Data(text=resources_pb2.Text(raw=input_text,),),),
+            ],
+        ))
+
+    if response.outputs[0].status.code == status_code_pb2.MODEL_DEPLOYING and time.time() - start_time < 60*10:
+      st.info("Model is still deploying, please wait...")
+      time.sleep(5)
+      continue
+
+    if response.status.code != status_code_pb2.SUCCESS:
+      raise Exception("PostModelOutputs request failed: %r" % response)
+    else:
+      break
 
   if DEBUG:
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
