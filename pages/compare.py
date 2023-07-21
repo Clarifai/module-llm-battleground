@@ -114,7 +114,16 @@ input_auth = ClarifaiAuthHelper.from_streamlit(st)
 input_auth._pat = pat
 input_stub = create_stub(input_auth)
 
-auth = ClarifaiAuthHelper.from_streamlit(st)
+module_query_params = st.experimental_get_query_params()
+# Check if the user is logged in. If not, use internal PAT.
+if module_query_params.get("pat", "") == "" and module_query_params.get("token", "") == "":
+  module_query_params["pat"] = [pat]
+  auth = ClarifaiAuthHelper.from_streamlit_query_params(module_query_params)
+  unauthorized = True
+else:
+  auth = ClarifaiAuthHelper.from_streamlit(st)
+  unauthorized = False
+
 stub = create_stub(auth)
 userDataObject = auth.get_user_app_id_proto()
 lister = ClarifaiResourceLister(stub, auth.user_id, auth.app_id, page_size=16)
@@ -141,8 +150,11 @@ def get_user():
   return response.user
 
 
-user = get_user()
-caller_id = user.id
+if unauthorized:
+  caller_id = "Anonymous"
+else:
+  user = get_user()
+  caller_id = user.id
 
 
 def create_prompt_model(model_id, prompt, position):
