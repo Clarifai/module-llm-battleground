@@ -114,7 +114,16 @@ input_auth = ClarifaiAuthHelper.from_streamlit(st)
 input_auth._pat = pat
 input_stub = create_stub(input_auth)
 
-auth = ClarifaiAuthHelper.from_streamlit(st)
+module_query_params = st.experimental_get_query_params()
+# Check if the user is logged in. If not, use internal PAT.
+if module_query_params.get("pat", "") == "" and module_query_params.get("token", "") == "":
+  module_query_params["pat"] = [pat]
+  auth = ClarifaiAuthHelper.from_streamlit_query_params(module_query_params)
+  unauthorized = True
+else:
+  auth = ClarifaiAuthHelper.from_streamlit(st)
+  unauthorized = False
+
 stub = create_stub(auth)
 userDataObject = auth.get_user_app_id_proto()
 lister = ClarifaiResourceLister(stub, auth.user_id, auth.app_id, page_size=16)
@@ -141,8 +150,11 @@ def get_user():
   return response.user
 
 
-user = get_user()
-caller_id = user.id
+if unauthorized:
+  caller_id = "Anonymous"
+else:
+  user = get_user()
+  caller_id = user.id
 
 
 def create_prompt_model(model_id, prompt, position):
@@ -305,7 +317,7 @@ def run_model(input_text, model):
         ))
 
     if response.outputs[0].status.code == status_code_pb2.MODEL_DEPLOYING and time.time() - start_time < 60*10:
-      st.info("Model is still deploying, please wait...")
+      st.info(f"{model.split(':')[0]} model is still deploying, please wait...")
       time.sleep(5)
       continue
 
@@ -493,97 +505,98 @@ def render_card(container, input, caller_id, completions):
     )
     container.code(d['completion'], language=None)
 
+if st.button("Generate Completions"):
 
-if inp and models:
-  if len(models) == 0:
-    st.error("You need to select at least one model.")
-    st.stop()
+  if inp and models:
+    if len(models) == 0:
+      st.error("You need to select at least one model.")
+      st.stop()
 
-  concepts = list_concepts()
-  concept_ids = [c.id for c in concepts]
-  for concept in [INPUT_CONCEPT, COMPLETION_CONCEPT]:
-    if concept.id not in concept_ids:
-      post_concept(concept)
-      st.success(f"Added {concept.id} concept")
+    concepts = list_concepts()
+    concept_ids = [c.id for c in concepts]
+    for concept in [INPUT_CONCEPT, COMPLETION_CONCEPT]:
+      if concept.id not in concept_ids:
+        post_concept(concept)
+        st.success(f"Added {concept.id} concept")
 
-  inp_input = post_input(
-      inp,
-      concepts=[INPUT_CONCEPT],
-      metadata={"tags": ["input"],
-                "caller": caller_id},
-  )
-
-  # st.markdown(
-  #     "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
-  #     unsafe_allow_html=True,
-  # )
-
-  cols = st.columns(3)
-  h = ClarifaiUrlHelper(auth)
-  link = h.clarifai_url(userDataObject.user_id, userDataObject.app_id, "installed_module_versions",
-                        query_params["imv_id"][0])
-  link = f"{link}?inp={inp_input.id}"
-
-  for mi, model in enumerate(models):
-    col = cols[mi % len(cols)]
-    container = col.container()
-    prediction = run_model(inp, model)
-    m = API_INFO[model]
-    model_url = h.clarifai_url(m["user_id"], m["app_id"], "models", m["model_id"])
-    model_url_with_version = h.clarifai_url(m["user_id"], m["app_id"], "models", m["model_id"],
-                                            m["version_id"])
-    # container.write(f"Completion from {model_url}:")
-
-    completion = prediction.outputs[0].data.text.raw
-    # container.write(completion)
-    complete_input = post_input(
-        completion,
-        concepts=[COMPLETION_CONCEPT],
-        metadata={
-            "input_id": inp_input.id,
-            "tags": ["completion"],
-            "model": model_url_with_version,
-            "caller": caller_id,
-        },
+    inp_input = post_input(
+        inp,
+        concepts=[INPUT_CONCEPT],
+        metadata={"tags": ["input"],
+                  "caller": caller_id},
     )
-    completions.append({
-        "select": True,
-        "model": model_url,
-        "completion": completion.strip(),
-        # "input_id":
-        #     f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{complete_input.id}",
-    })
 
-  render_card(st, inp, None, completions)
+    # st.markdown(
+    #     "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
+    #     unsafe_allow_html=True,
+    # )
 
-  c = pd.DataFrame(completions)
+    cols = st.columns(3)
+    h = ClarifaiUrlHelper(auth)
+    link = h.clarifai_url(userDataObject.user_id, userDataObject.app_id, "installed_module_versions",
+                          query_params["imv_id"][0])
+    link = f"{link}?inp={inp_input.id}"
 
-  st.subheader("Show differences")
-  st.markdown("Select the completions you wish to compare.")
-  edited_df = st.data_editor(c, disabled=set(completions[0].keys()) - set(["select"]))
-  selected_rows = edited_df.loc[edited_df['select']]
-  if len(selected_rows) != 2:
-    st.warning("Please select two completions to diff")
-  else:
-    old_value = selected_rows.iloc[0]["completion"]
-    new_value = selected_rows.iloc[1]["completion"]
-    cols = st.columns(2)
-    cols[0].markdown(f"Completion: {selected_rows.iloc[0]['model']}")
-    cols[1].markdown(f"Completion: {selected_rows.iloc[1]['model']}")
-    diff_viewer.diff_viewer(old_text=old_value, new_text=new_value, lang='none')
+    for mi, model in enumerate(models):
+      col = cols[mi % len(cols)]
+      container = col.container()
+      prediction = run_model(inp, model)
+      m = API_INFO[model]
+      model_url = h.clarifai_url(m["user_id"], m["app_id"], "models", m["model_id"])
+      model_url_with_version = h.clarifai_url(m["user_id"], m["app_id"], "models", m["model_id"],
+                                              m["version_id"])
+      # container.write(f"Completion from {model_url}:")
 
-  # share on twitter.
-  components.html(f"""
-          <a href="https://twitter.com/share?ref_src=twsrc%5Etfw" class="twitter-share-button"
-          data-text="Check this cool @streamlit module built on @clarifai to compare @openai GPT-4 vs @AnthropicAI Claude 2 head to head, try it yourself!"
-          data-url={link}
-          data-show-count="false">
-          data-size="Large"
-          data-hashtags="streamlit,python,clarifai,llm"
-          Tweet
-          </a>
-          <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
-      """)
+      completion = prediction.outputs[0].data.text.raw
+      # container.write(completion)
+      complete_input = post_input(
+          completion,
+          concepts=[COMPLETION_CONCEPT],
+          metadata={
+              "input_id": inp_input.id,
+              "tags": ["completion"],
+              "model": model_url_with_version,
+              "caller": caller_id,
+          },
+      )
+      completions.append({
+          "select": True,
+          "model": model_url,
+          "completion": completion.strip(),
+          # "input_id":
+          #     f"https://clarifai.com/{userDataObject.user_id}/{userDataObject.app_id}/inputs/{complete_input.id}",
+      })
+
+    render_card(st, inp, None, completions)
+
+    c = pd.DataFrame(completions)
+
+    st.subheader("Show differences")
+    st.markdown("Select the completions you wish to compare.")
+    edited_df = st.data_editor(c, disabled=set(completions[0].keys()) - set(["select"]))
+    selected_rows = edited_df.loc[edited_df['select']]
+    if len(selected_rows) != 2:
+      st.warning("Please select two completions to diff")
+    else:
+      old_value = selected_rows.iloc[0]["completion"]
+      new_value = selected_rows.iloc[1]["completion"]
+      cols = st.columns(2)
+      cols[0].markdown(f"Completion: {selected_rows.iloc[0]['model']}")
+      cols[1].markdown(f"Completion: {selected_rows.iloc[1]['model']}")
+      diff_viewer.diff_viewer(old_text=old_value, new_text=new_value, lang='none')
+
+    # share on twitter.
+    components.html(f"""
+            <a href="https://twitter.com/share?ref_src=twsrc%5Etfw" class="twitter-share-button"
+            data-text="Check this cool @streamlit module built on @clarifai to compare @openai GPT-4 vs @AnthropicAI Claude 2 head to head, try it yourself!"
+            data-url={link}
+            data-show-count="false">
+            data-size="Large"
+            data-hashtags="streamlit,python,clarifai,llm"
+            Tweet
+            </a>
+            <script async src="https://platform.twitter.com/widgets.js" charset="utf-8"></script>
+        """)
 
 st.markdown(
     "Note: your messages and completions will be stored and shares publicly as recent messages")
