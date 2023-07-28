@@ -29,6 +29,26 @@ def local_css(file_name):
     st.markdown("<style>{}</style>".format(f.read()), unsafe_allow_html=True)
 
 
+def get_default_models():
+  home = os.environ['HOME']
+  default_models_file_path = home + '/.clarifai_default_models'
+  if not os.path.exists(default_models_file_path):
+    set_defauls_btn = st.button("Set default models")
+    models = st.multiselect("Select default models:", API_INFO.keys())
+    if set_defauls_btn:
+      if models:
+        models_text = '\n'.join(models)
+        with open(default_models_file_path, 'w') as f:
+          f.write(models_text)
+      else:
+        st.error("You need to select at least one model.")
+        st.stop()
+  else:
+    with open(default_models_file_path) as f:
+      models = list(f.read().split('\n'))
+
+  return models
+
 # Note(zeiler): we need to store a special PAT to post inputs.
 def load_pat():
   home = os.environ['HOME']
@@ -134,8 +154,10 @@ filter_by = dict(
 )
 API_INFO = list_models(stub, filter_by=filter_by)
 
+default_llms = get_default_models()
+
 st.markdown(
-    "<h1 style='text-align: center; color: black;'>LLM Battleground</h1>",
+    "<h1 style='text-align: center; color: black;'>LLM Battleground!!</h1>",
     unsafe_allow_html=True,
 )
 
@@ -468,7 +490,7 @@ st.markdown(
 
 model_names = list(API_INFO.keys())
 models = st.multiselect(
-    "Select the LLMs you want to use:", model_names, default=['GPT-4: openai', 'claude-v2: anthropic'])
+    "Select the LLMs you want to use:", model_names, default=default_llms)
 
 inp = st.text_area(
     " ",
