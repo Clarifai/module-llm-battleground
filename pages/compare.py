@@ -157,7 +157,7 @@ API_INFO = list_models(stub, filter_by=filter_by)
 default_llms = get_default_models()
 
 st.markdown(
-    "<h1 style='text-align: center; color: black;'>LLM Battleground!!</h1>",
+    "<h1 style='text-align: center; color: black;'>LLM Battleground</h1>",
     unsafe_allow_html=True,
 )
 
