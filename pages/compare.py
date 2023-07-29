@@ -1,9 +1,8 @@
 import hashlib
-import os
 import time
 import uuid
 from itertools import cycle
-from typing import Dict, Iterator, List
+from typing import Dict, Iterator
 
 import diff_viewer
 import pandas as pd
@@ -30,42 +29,26 @@ def local_css(file_name):
 
 
 def get_default_models():
-  home = os.environ['HOME']
-  default_models_file_path = home + '/.clarifai_default_models'
-  if not os.path.exists(default_models_file_path):
-    set_defauls_btn = st.button("Set default models")
-    models = st.multiselect("Select default models:", API_INFO.keys())
-    if set_defauls_btn:
-      if models:
-        models_text = '\n'.join(models)
-        with open(default_models_file_path, 'w') as f:
-          f.write(models_text)
-      else:
-        st.error("You need to select at least one model.")
-        st.stop()
-  else:
-    with open(default_models_file_path) as f:
-      models = list(f.read().split('\n'))
+  if 'DEFAULT_MODELS' not in st.secrets:
+    st.error("You need to set the default models in the secrets.")
+    st.stop()
 
+  models = st.secrets.DEFAULT_MODELS.split(",")
   return models
 
-# Note(zeiler): we need to store a special PAT to post inputs.
+
 def load_pat():
-  home = os.environ['HOME']
-  if not os.path.exists(home + '/.clarifai_pat'):
-    pat = st.text_input("Enter a Clarifai Personal Access Token that can write to this app")
-    if pat:
-      with open(home + '/.clarifai_pat', 'w') as f:
-        f.write(pat)
-    else:
-      st.stop()
+  if 'CLARIFAI_PAT' not in st.secrets:
+    st.error("You need to set the CLARIFAI_PAT in the secrets.")
+    st.stop()
+  return st.secrets.CLARIFAI_PAT
 
-  with open(home + '/.clarifai_pat') as f:
-    return f.read()
 
-def models_generator(stub: V2Stub,
-                     page_size: int = 64,
-                     filter_by: dict = {},) -> Iterator[resources_pb2.Model]:
+def models_generator(
+    stub: V2Stub,
+    page_size: int = 64,
+    filter_by: dict = {},
+) -> Iterator[resources_pb2.Model]:
   """
     Iterator for all the community models based on specified conditions.
 
@@ -83,7 +66,8 @@ def models_generator(stub: V2Stub,
   page = 1
   while True:
     response = stub.ListModels(
-        service_pb2.ListModelsRequest(user_app_id=userDataObject, page=page, per_page=page_size, **filter_by),)
+        service_pb2.ListModelsRequest(
+            user_app_id=userDataObject, page=page, per_page=page_size, **filter_by),)
 
     if response.status.code not in model_success_status:
       raise Exception("ListModels failed with response %r" % response)
@@ -93,9 +77,12 @@ def models_generator(stub: V2Stub,
       yield item
     page += 1
 
-def list_models(stub: V2Stub,
-                filter_by: dict = {},)-> Dict[str, Dict[str, str]]:
-    """
+
+def list_models(
+    stub: V2Stub,
+    filter_by: dict = {},
+) -> Dict[str, Dict[str, str]]:
+  """
       Lists all the community models based on specified conditions.
 
       Args:
@@ -105,18 +92,19 @@ def list_models(stub: V2Stub,
       Returns:
         API_INFO: dictionary of models information.
     """
-    API_INFO = {}
-    for model_proto in models_generator(stub=stub, filter_by=filter_by):
-        model_dict = MessageToDict(model_proto)
-        try:
-            API_INFO[f"{model_dict['id']}: {model_dict['userId']}"] = dict(user_id=model_dict["userId"],
-                                                                            app_id=model_dict["appId"], model_id=model_dict["id"],
-                                                                            version_id=model_dict["modelVersion"]["id"])
-        except IndexError:
-            pass
-    return API_INFO
+  API_INFO = {}
+  for model_proto in models_generator(stub=stub, filter_by=filter_by):
+    model_dict = MessageToDict(model_proto)
+    try:
+      API_INFO[f"{model_dict['id']}: {model_dict['userId']}"] = dict(
+          user_id=model_dict["userId"],
+          app_id=model_dict["appId"],
+          model_id=model_dict["id"],
+          version_id=model_dict["modelVersion"]["id"])
+    except IndexError:
+      pass
+  return API_INFO
 
-pat = load_pat()
 
 local_css("./style.css")
 
@@ -129,30 +117,34 @@ COMPLETION_CONCEPT = resources_pb2.Concept(id="completion", value=1.0)
 
 # This must be within the display() function.
 
-# We need to use this post_input
-input_auth = ClarifaiAuthHelper.from_streamlit(st)
-input_auth._pat = pat
-input_stub = create_stub(input_auth)
+# We need to use this post_input and to create and delete models/workflows.
+secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
+pat = load_pat()
+secrets_auth._pat = pat
+secrets_stub = create_stub(secrets_auth)
+# TODO(mansi): validate with myscopes that we have all the scopes we need for the API calls to post
+# inputs and delete models/workflows.
 
-module_query_params = st.experimental_get_query_params()
 # Check if the user is logged in. If not, use internal PAT.
+module_query_params = st.experimental_get_query_params()
 if module_query_params.get("pat", "") == "" and module_query_params.get("token", "") == "":
-  module_query_params["pat"] = [pat]
-  auth = ClarifaiAuthHelper.from_streamlit_query_params(module_query_params)
   unauthorized = True
 else:
-  auth = ClarifaiAuthHelper.from_streamlit(st)
   unauthorized = False
-
-stub = create_stub(auth)
-userDataObject = auth.get_user_app_id_proto()
-lister = ClarifaiResourceLister(stub, auth.user_id, auth.app_id, page_size=16)
+# Get the auth from secrets first and then override that if a pat is provided as a query param.
+# If no PAT is in the query param then the resulting auth/stub will match the secrets_auth/stub.
+user_or_secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
+# This user_or_secrets_stub wil be used for all the predict calls so we bill the user for those.
+user_or_secrets_stub = create_stub(user_or_secrets_auth)
+userDataObject = user_or_secrets_auth.get_user_app_id_proto()
+lister = ClarifaiResourceLister(
+    user_or_secrets_stub, user_or_secrets_auth.user_id, user_or_secrets_auth.app_id, page_size=16)
 
 filter_by = dict(
     query="LLM",
     model_type_id="text-to-text",
 )
-API_INFO = list_models(stub, filter_by=filter_by)
+API_INFO = list_models(user_or_secrets_stub, filter_by=filter_by)
 
 default_llms = get_default_models()
 
@@ -166,7 +158,7 @@ st.markdown(
 
 def get_user():
   req = service_pb2.GetUserRequest(user_app_id=resources_pb2.UserAppIDSet(user_id="me"))
-  response = stub.GetUser(req)
+  response = user_or_secrets_stub.GetUser(req)
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("GetUser request failed: %r" % response)
   return response.user
@@ -183,7 +175,10 @@ def create_prompt_model(model_id, prompt, position):
   if position not in ["PREFIX", "SUFFIX", "TEMPLATE"]:
     raise Exception("Position must be PREFIX or SUFFIX")
 
-  response = stub.PostModels(
+  # FIXME(zeiler): i think that if the user is logged in then postmodeloutputs or
+  # postworkflowresults will fail because these models/workflows are not made publicly visible.
+  # When the are anonymous then we fall back to the PAT provided in the secrets file.
+  response = secrets_stub.PostModels(
       service_pb2.PostModelsRequest(
           user_app_id=userDataObject,
           models=[
@@ -209,7 +204,7 @@ def create_prompt_model(model_id, prompt, position):
       },
       req.model_versions[0].output_info.params,
   )
-  post_model_versions_response = stub.PostModelVersions(req)
+  post_model_versions_response = secrets_stub.PostModelVersions(req)
   if post_model_versions_response.status.code != status_code_pb2.SUCCESS:
     raise Exception("PostModelVersions request failed: %r" % post_model_versions_response)
 
@@ -217,7 +212,7 @@ def create_prompt_model(model_id, prompt, position):
 
 
 def delete_model(model):
-  response = stub.DeleteModels(
+  response = secrets_stub.DeleteModels(
       service_pb2.DeleteModelsRequest(
           user_app_id=userDataObject,
           ids=[model.id],
@@ -280,7 +275,10 @@ def create_workflow(prompt_model, selected_llm):
       ],
   )
 
-  response = stub.PostWorkflows(req)
+  # FIXME(zeiler): i think that if the user is logged in then postmodeloutputs or
+  # postworkflowresults will fail because these models/workflows are not made publicly visible.
+  # When the are anonymous then we fall back to the PAT provided in the secrets file.
+  response = secrets_stub.PostWorkflows(req)
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("PostWorkflows request failed: %r" % response)
   if DEBUG:
@@ -290,7 +288,7 @@ def create_workflow(prompt_model, selected_llm):
 
 
 def delete_workflow(workflow):
-  response = stub.DeleteWorkflows(
+  response = secrets_stub.DeleteWorkflows(
       service_pb2.DeleteWorkflowsRequest(
           user_app_id=userDataObject,
           ids=[workflow.id],
@@ -303,7 +301,7 @@ def delete_workflow(workflow):
 
 @st.cache_resource
 def run_workflow(input_text, workflow):
-  response = stub.PostWorkflowResults(
+  response = user_or_secrets_stub.PostWorkflowResults(
       service_pb2.PostWorkflowResultsRequest(
           user_app_id=userDataObject,
           workflow_id=workflow.id,
@@ -328,7 +326,7 @@ def run_model(input_text, model):
   start_time = time.time()
   while True:
 
-    response = stub.PostModelOutputs(
+    response = user_or_secrets_stub.PostModelOutputs(
         service_pb2.PostModelOutputsRequest(
             user_app_id=resources_pb2.UserAppIDSet(user_id=m['user_id'], app_id=m['app_id']),
             model_id=m['model_id'],
@@ -338,7 +336,8 @@ def run_model(input_text, model):
             ],
         ))
 
-    if response.outputs[0].status.code == status_code_pb2.MODEL_DEPLOYING and time.time() - start_time < 60*10:
+    if response.outputs[0].status.code == status_code_pb2.MODEL_DEPLOYING and time.time(
+    ) - start_time < 60 * 10:
       st.info(f"{model.split(':')[0]} model is still deploying, please wait...")
       time.sleep(5)
       continue
@@ -371,7 +370,7 @@ def post_input(txt, concepts=[], metadata=None):
     req.inputs[0].data.concepts.extend(concepts)
   if metadata is not None:
     req.inputs[0].data.metadata.update(metadata)
-  response = input_stub.PostInputs(req)
+  response = secrets_stub.PostInputs(req)
   if response.status.code != status_code_pb2.SUCCESS:
     if len(response.inputs) and response.inputs[0].status.details.find("duplicate ID") != -1:
       # If the input already exists, just return the input
@@ -384,7 +383,8 @@ def post_input(txt, concepts=[], metadata=None):
 
 def list_concepts():
   """Lists all concepts in the user's app."""
-  response = input_stub.ListConcepts(service_pb2.ListConceptsRequest(user_app_id=userDataObject,))
+  response = secrets_stub.ListConcepts(
+      service_pb2.ListConceptsRequest(user_app_id=userDataObject,))
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("ListConcepts request failed: %r" % response)
   return response.concepts
@@ -392,7 +392,7 @@ def list_concepts():
 
 def post_concept(concept):
   """Posts a concept to the user's app."""
-  response = input_stub.PostConcepts(
+  response = secrets_stub.PostConcepts(
       service_pb2.PostConceptsRequest(
           user_app_id=userDataObject,
           concepts=[concept],
@@ -420,7 +420,7 @@ def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
     req.searches[0].query.filters.append(
         resources_pb2.Filter(
             annotation=resources_pb2.Annotation(data=resources_pb2.Data(metadata=metadata,))))
-  response = input_stub.PostAnnotationsSearches(req)
+  response = secrets_stub.PostAnnotationsSearches(req)
   # st.write(response)
 
   if response.status.code != status_code_pb2.SUCCESS:
@@ -432,7 +432,7 @@ def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
 def get_input(input_id):
   """Searches for inputs in the user's app."""
   req = service_pb2.GetInputRequest(user_app_id=userDataObject, input_id=input_id)
-  response = input_stub.GetInput(req)
+  response = secrets_stub.GetInput(req)
   # st.write(response)
 
   if response.status.code != status_code_pb2.SUCCESS:
@@ -489,8 +489,7 @@ st.markdown(
 )
 
 model_names = list(API_INFO.keys())
-models = st.multiselect(
-    "Select the LLMs you want to use:", model_names, default=default_llms)
+models = st.multiselect("Select the LLMs you want to use:", model_names, default=default_llms)
 
 inp = st.text_area(
     " ",
@@ -527,6 +526,7 @@ def render_card(container, input, caller_id, completions):
     )
     container.code(d['completion'], language=None)
 
+
 if st.button("Generate Completions"):
 
   if inp and models:
@@ -554,9 +554,9 @@ if st.button("Generate Completions"):
     # )
 
     cols = st.columns(3)
-    h = ClarifaiUrlHelper(auth)
-    link = h.clarifai_url(userDataObject.user_id, userDataObject.app_id, "installed_module_versions",
-                          query_params["imv_id"][0])
+    h = ClarifaiUrlHelper(user_or_secrets_auth)
+    link = h.clarifai_url(userDataObject.user_id, userDataObject.app_id,
+                          "installed_module_versions", query_params["imv_id"][0])
     link = f"{link}?inp={inp_input.id}"
 
     for mi, model in enumerate(models):
