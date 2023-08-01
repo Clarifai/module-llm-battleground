@@ -213,6 +213,8 @@ def create_prompt_model(model_id, prompt, position):
 
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("PostModels request failed: %r" % response)
+  
+  validate_scopes(['Apps_Get','Concepts_Get','Models_Add','Models_Train','Models_Get','Workflows_Get','Annotations_Get','Inputs_Get','Metrics_Get','Metrics_Add'], myscopes_response.scopes, "PostModelVersions")
 
   req = service_pb2.PostModelVersionsRequest(
       user_app_id=userDataObject,
