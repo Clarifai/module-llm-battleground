@@ -44,9 +44,9 @@ def get_default_models():
   return models
 
 def get_userapp_scopes(stub: V2Stub, userDataObject):
-  userDataObject = resources_pb2.UserAppIDSet(user_id=userDataObject.user_id,app_id=userDataObject.app_id)
+  userDataObj = resources_pb2.UserAppIDSet(user_id=userDataObject.user_id,app_id=userDataObject.app_id)
   response = stub.MyScopes(
-    service_pb2.MyScopesRequest(user_app_id=userDataObject)
+    service_pb2.MyScopesRequest(user_app_id=userDataObj)
   )
   return response
 
