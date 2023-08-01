@@ -28,6 +28,13 @@ def local_css(file_name):
     st.markdown("<style>{}</style>".format(f.read()), unsafe_allow_html=True)
 
 
+def load_pat():
+  if 'CLARIFAI_PAT' not in st.secrets:
+    st.error("You need to set the CLARIFAI_PAT in the secrets.")
+    st.stop()
+  return st.secrets.CLARIFAI_PAT
+
+
 def get_default_models():
   if 'DEFAULT_MODELS' not in st.secrets:
     st.error("You need to set the default models in the secrets.")
@@ -36,12 +43,19 @@ def get_default_models():
   models = st.secrets.DEFAULT_MODELS.split(",")
   return models
 
+def get_userapp_scopes(stub: V2Stub, userDataObject):
+  userDataObject = resources_pb2.UserAppIDSet(user_id=userDataObject.user_id,app_id=userDataObject.app_id)
+  response = stub.MyScopes(
+    service_pb2.MyScopesRequest(user_app_id=userDataObject)
+  )
+  return response
 
-def load_pat():
-  if 'CLARIFAI_PAT' not in st.secrets:
-    st.error("You need to set the CLARIFAI_PAT in the secrets.")
-    st.stop()
-  return st.secrets.CLARIFAI_PAT
+def validate_scopes(required_scopes, userapp_scopes, request_name):
+  if "All" in userapp_scopes or all(scp in userapp_scopes for scp in required_scopes):
+    return True
+  st.error("You do not have correct scopes for the "+request_name+" request")
+  st.stop()
+  return False
 
 
 def models_generator(
@@ -60,6 +74,8 @@ def models_generator(
     Returns:
       models: a list of Model protos for all the community models.
     """
+  validate_scopes(['Apps_Get','Concepts_Get','Models_Get'], myscopes_response.scopes, "ListModels")
+
   userDataObject = resources_pb2.UserAppIDSet()
   model_success_status = {status_code_pb2.SUCCESS}
 
@@ -122,6 +138,7 @@ secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
 pat = load_pat()
 secrets_auth._pat = pat
 secrets_stub = create_stub(secrets_auth)
+
 # TODO(mansi): validate with myscopes that we have all the scopes we need for the API calls to post
 # inputs and delete models/workflows.
 
@@ -137,6 +154,9 @@ user_or_secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
 # This user_or_secrets_stub wil be used for all the predict calls so we bill the user for those.
 user_or_secrets_stub = create_stub(user_or_secrets_auth)
 userDataObject = user_or_secrets_auth.get_user_app_id_proto()
+
+myscopes_response = get_userapp_scopes(user_or_secrets_stub, userDataObject)
+
 lister = ClarifaiResourceLister(
     user_or_secrets_stub, user_or_secrets_auth.user_id, user_or_secrets_auth.app_id, page_size=16)
 
@@ -174,6 +194,8 @@ else:
 def create_prompt_model(model_id, prompt, position):
   if position not in ["PREFIX", "SUFFIX", "TEMPLATE"]:
     raise Exception("Position must be PREFIX or SUFFIX")
+  
+  validate_scopes(['Apps_Get','Concepts_Get','Models_Add','Models_Train','Models_Get','Workflows_Get'], myscopes_response.scopes, "PostModels")
 
   # FIXME(zeiler): i think that if the user is logged in then postmodeloutputs or
   # postworkflowresults will fail because these models/workflows are not made publicly visible.
@@ -212,6 +234,7 @@ def create_prompt_model(model_id, prompt, position):
 
 
 def delete_model(model):
+  validate_scopes(['Apps_Get','Concepts_Get','Models_Add','Models_Delete','Models_Get','Workflows_Get'], myscopes_response.scopes, "DeleteModels")
   response = secrets_stub.DeleteModels(
       service_pb2.DeleteModelsRequest(
           user_app_id=userDataObject,
@@ -235,6 +258,7 @@ def create_workflows(prompt, models):
 
 
 def create_workflow(prompt_model, selected_llm):
+  validate_scopes(['Apps_Get','Models_Get','Workflows_Get','Workflows_Add'], myscopes_response.scopes, "PostWorkflows")
   req = service_pb2.PostWorkflowsRequest(
       user_app_id=userDataObject,
       workflows=[
@@ -288,6 +312,7 @@ def create_workflow(prompt_model, selected_llm):
 
 
 def delete_workflow(workflow):
+  validate_scopes(['Apps_Get','Workflows_Delete','Workflows_Get','Workflows_Add'], myscopes_response.scopes, "DeleteWorkflows")
   response = secrets_stub.DeleteWorkflows(
       service_pb2.DeleteWorkflowsRequest(
           user_app_id=userDataObject,
@@ -301,6 +326,7 @@ def delete_workflow(workflow):
 
 @st.cache_resource
 def run_workflow(input_text, workflow):
+  validate_scopes(['Apps_Get','Models_Get','Workflows_Get','Concepts_Get','Predict'], myscopes_response.scopes, "PostWorkflowResults")
   response = user_or_secrets_stub.PostWorkflowResults(
       service_pb2.PostWorkflowResultsRequest(
           user_app_id=userDataObject,
@@ -321,6 +347,7 @@ def run_workflow(input_text, workflow):
 
 @st.cache_resource
 def run_model(input_text, model):
+  validate_scopes(['Apps_Get','Models_Get','Concepts_Get','Predict'], myscopes_response.scopes, "PostModelOutputs")
 
   m = API_INFO[model]
   start_time = time.time()
@@ -356,6 +383,7 @@ def run_model(input_text, model):
 @st.cache_resource
 def post_input(txt, concepts=[], metadata=None):
   """Posts input to the API and returns the response."""
+  validate_scopes(['Apps_Get','Models_Get','Concepts_Get','Predict','Annotations_Add','Annotations_Get','Inputs_Add','Inputs_Get'], myscopes_response.scopes, "PostInputs")
   id = hashlib.md5(txt.encode("utf-8")).hexdigest()
   req = service_pb2.PostInputsRequest(
       user_app_id=userDataObject,
@@ -383,6 +411,7 @@ def post_input(txt, concepts=[], metadata=None):
 
 def list_concepts():
   """Lists all concepts in the user's app."""
+  validate_scopes(['Apps_Get','Concepts_Get'], myscopes_response.scopes, "ListConcepts")
   response = secrets_stub.ListConcepts(
       service_pb2.ListConceptsRequest(user_app_id=userDataObject,))
   if response.status.code != status_code_pb2.SUCCESS:
@@ -392,6 +421,7 @@ def list_concepts():
 
 def post_concept(concept):
   """Posts a concept to the user's app."""
+  validate_scopes(['Apps_Get','Concepts_Get','Concepts_Add'], myscopes_response.scopes, "PostConcepts")
   response = secrets_stub.PostConcepts(
       service_pb2.PostConceptsRequest(
           user_app_id=userDataObject,
@@ -404,6 +434,7 @@ def post_concept(concept):
 
 def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
   """Searches for inputs in the user's app."""
+  validate_scopes(['Apps_Get','Concepts_Get','Annotations_Get','Inputs_Get','Models_Get','Search','Workflows_Get'], myscopes_response.scopes, "PostAnnotationsSearches")
   req = service_pb2.PostAnnotationsSearchesRequest(
       user_app_id=userDataObject,
       searches=[resources_pb2.Search(query=resources_pb2.Query(filters=[]))],
@@ -431,6 +462,7 @@ def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
 @st.cache_resource
 def get_input(input_id):
   """Searches for inputs in the user's app."""
+  validate_scopes(['Apps_Get','Concepts_Get','Annotations_Get','Inputs_Get'], myscopes_response.scopes, "GetInput")
   req = service_pb2.GetInputRequest(user_app_id=userDataObject, input_id=input_id)
   response = secrets_stub.GetInput(req)
   # st.write(response)
