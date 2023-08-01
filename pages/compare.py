@@ -151,7 +151,7 @@ def get_user():
   req = service_pb2.GetUserRequest(user_app_id=resources_pb2.UserAppIDSet(user_id="me"))
   response = stub.GetUser(req)
   if response.status.code != status_code_pb2.SUCCESS:
-    show_error("GetUserRequest", response)
+    show_error("GetUser", response)
   return response.user
 
 
@@ -178,7 +178,7 @@ def create_prompt_model(model_id, prompt, position):
       ))
 
   if response.status.code != status_code_pb2.SUCCESS:
-    show_error("ListModels", response)
+    show_error("PostModels", response)
 
   req = service_pb2.PostModelVersionsRequest(
       user_app_id=userDataObject,
@@ -267,6 +267,9 @@ def create_workflow(prompt_model, selected_llm):
   if response.status.code != status_code_pb2.SUCCESS:
     show_error("PostWorkflows", response)
 
+  if DEBUG:
+    st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
+
   return response.workflows[0]
 
 
@@ -295,6 +298,9 @@ def run_workflow(input_text, workflow):
       ))
   if response.status.code != status_code_pb2.SUCCESS:
     show_error("PostWorkflowResults", response)
+
+  if DEBUG:
+    st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
 
   return response
 
