@@ -39,7 +39,6 @@ def get_default_models():
   if 'DEFAULT_MODELS' not in st.secrets:
     st.error("You need to set the default models in the secrets.")
     st.stop()
-
   models = st.secrets.DEFAULT_MODELS.split(",")
   return models
 
@@ -56,6 +55,12 @@ def validate_scopes(required_scopes, userapp_scopes):
   st.error("You do not have correct scopes for this module")
   st.stop()
   return False
+
+def show_error(request_name, response):
+  st.error(f"There was an error with your request to {request_name}")
+  st.json(json_format.MessageToJson(response, preserving_proto_field_name=True))
+  raise Exception(f"There was an error with your request to {request_name} {response.status.description}")
+  st.stop()
 
 def models_generator(
     stub: V2Stub,
@@ -83,7 +88,7 @@ def models_generator(
             user_app_id=userDataObject, page=page, per_page=page_size, **filter_by),)
 
     if response.status.code not in model_success_status:
-      raise Exception("ListModels failed with response %r" % response)
+      show_error("ListModels", response)
     if len(response.models) == 0:
       break
     for item in response.models:
@@ -180,7 +185,7 @@ def get_user():
   req = service_pb2.GetUserRequest(user_app_id=resources_pb2.UserAppIDSet(user_id="me"))
   response = user_or_secrets_stub.GetUser(req)
   if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("GetUser request failed: %r" % response)
+    show_error("GetUser", response)
   return response.user
 
 
@@ -211,7 +216,7 @@ def create_prompt_model(model_id, prompt, position):
 
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("PostModels request failed: %r" % response)
-  
+
   req = service_pb2.PostModelVersionsRequest(
       user_app_id=userDataObject,
       model_id=model_id,
@@ -226,7 +231,7 @@ def create_prompt_model(model_id, prompt, position):
   )
   post_model_versions_response = secrets_stub.PostModelVersions(req)
   if post_model_versions_response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("PostModelVersions request failed: %r" % post_model_versions_response)
+    show_error("PostModelVersions", response)
 
   return post_model_versions_response.model
 
@@ -238,7 +243,7 @@ def delete_model(model):
           ids=[model.id],
       ))
   if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("DeleteModels request failed: %r" % response)
+    show_error("DeleteModels", response)
 
 
 @st.cache_resource
@@ -300,7 +305,8 @@ def create_workflow(prompt_model, selected_llm):
   # When the are anonymous then we fall back to the PAT provided in the secrets file.
   response = secrets_stub.PostWorkflows(req)
   if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("PostWorkflows request failed: %r" % response)
+    show_error("PostWorkflows", response)
+
   if DEBUG:
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
 
@@ -314,7 +320,7 @@ def delete_workflow(workflow):
           ids=[workflow.id],
       ))
   if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("DeleteWorkflows request failed: %r" % response)
+    show_error("DeleteWorkflows", response)
   else:
     print(f"Workflow {workflow.id} deleted")
 
@@ -331,7 +337,7 @@ def run_workflow(input_text, workflow):
           ],
       ))
   if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("PostWorkflowResults request failed: %r" % response)
+    show_error("PostWorkflowResults", response)
 
   if DEBUG:
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
@@ -363,7 +369,7 @@ def run_model(input_text, model):
       continue
 
     if response.status.code != status_code_pb2.SUCCESS:
-      raise Exception("PostModelOutputs request failed: %r" % response)
+      show_error("PostModelOutputs", response)
     else:
       break
 
@@ -395,9 +401,7 @@ def post_input(txt, concepts=[], metadata=None):
     if len(response.inputs) and response.inputs[0].status.details.find("duplicate ID") != -1:
       # If the input already exists, just return the input
       return req.inputs[0]
-    st.error("Storing the input failed.")
-    st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
-    st.stop()
+    show_error("PostInputs", response)
   return response.inputs[0]
 
 
@@ -406,7 +410,7 @@ def list_concepts():
   response = secrets_stub.ListConcepts(
       service_pb2.ListConceptsRequest(user_app_id=userDataObject,))
   if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("ListConcepts request failed: %r" % response)
+    show_error("ListConcepts", response)
   return response.concepts
 
 
@@ -418,7 +422,7 @@ def post_concept(concept):
           concepts=[concept],
       ))
   if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("PostConcepts request failed: %r" % response)
+    show_error("PostConcepts", response)
   return response.concepts[0]
 
 
@@ -444,7 +448,7 @@ def search_inputs(concepts=[], metadata=None, page=1, per_page=20):
   # st.write(response)
 
   if response.status.code != status_code_pb2.SUCCESS:
-    raise Exception("SearchInputs request failed: %r" % response)
+    show_error("PostAnnotationsSearches", response)
   return response
 
 
@@ -456,9 +460,7 @@ def get_input(input_id):
   # st.write(response)
 
   if response.status.code != status_code_pb2.SUCCESS:
-    st.error(f"GetInput for input_id failed.")
-    st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
-    st.stop()
+    show_error("GetInput", response)
   return response.input
 
 
