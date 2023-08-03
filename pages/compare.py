@@ -39,6 +39,8 @@ def get_default_models():
   if 'DEFAULT_MODELS' not in st.secrets:
     st.error("You need to set the default models in the secrets.")
     st.stop()
+  models = st.secrets.DEFAULT_MODELS.split(",")
+  return models
 
 def get_userapp_scopes(stub: V2Stub, userDataObject):
   userDataObj = resources_pb2.UserAppIDSet(user_id=userDataObject.user_id,app_id=userDataObject.app_id)
