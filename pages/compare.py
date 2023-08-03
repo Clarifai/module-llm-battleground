@@ -46,7 +46,7 @@ def load_pat():
 def show_error(request_name, response):
   st.error("There was an error with your request to "+request_name)
   st.json(json_format.MessageToJson(response, preserving_proto_field_name=True))
-  raise Exception("There was an error with your request to "+request_name+" "+response.status.description)
+  raise Exception(f"There was an error with your request to {request_name} {response.status.description}")
   st.stop()
 
 def models_generator(stub: V2Stub,
@@ -71,7 +71,7 @@ def models_generator(stub: V2Stub,
     response = stub.ListModels(
         service_pb2.ListModelsRequest(user_app_id=userDataObject, page=page, per_page=page_size, **filter_by),)
 
-    if response.status.code in model_success_status:
+    if response.status.code not in model_success_status:
       show_error("ListModels", response)
     if len(response.models) == 0:
       break
