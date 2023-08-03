@@ -44,7 +44,7 @@ def load_pat():
     return f.read()
   
 def show_error(request_name, response):
-  st.error("There was an error with your request to "+request_name)
+  st.error(f"There was an error with your request to {request_name}")
   st.json(json_format.MessageToJson(response, preserving_proto_field_name=True))
   raise Exception(f"There was an error with your request to {request_name} {response.status.description}")
   st.stop()
