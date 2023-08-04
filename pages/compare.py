@@ -139,7 +139,7 @@ COMPLETION_CONCEPT = resources_pb2.Concept(id="completion", value=1.0)
 secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
 pat = load_pat()
 secrets_auth._pat = pat
-secrets_stub = create_stub(secrets_auth)
+secrets_stub = create_stub(secrets_auth) # installer's stub (PAT)
 
 # TODO(mansi): validate with myscopes that we have all the scopes we need for the API calls to post
 # inputs and delete models/workflows.
@@ -154,10 +154,14 @@ else:
 # If no PAT is in the query param then the resulting auth/stub will match the secrets_auth/stub.
 user_or_secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
 # This user_or_secrets_stub wil be used for all the predict calls so we bill the user for those.
-user_or_secrets_stub = create_stub(user_or_secrets_auth)
+user_or_secrets_stub = create_stub(user_or_secrets_auth)  # user's (viewer's) stub
 userDataObject = user_or_secrets_auth.get_user_app_id_proto()
 
-all_needed_scopes = ['Inputs_Get', 'Models_Get', 'Concepts_Add', 'Concepts_Get', 'Metrics_Get', 'Workflows_Add', 'Workflows_Delete', 'Models_Delete', 'Apps_Get', 'Models_Add', 'Annotations_Add', 'Workflows_Get', 'Metrics_Add', 'Models_Train', 'Annotations_Get', 'Predict', 'Inputs_Add', 'Search', 'Workflows_GetApps_Get']
+# We are using user's (viewer's) PAT for ListModelsRequest, PostWorkflowResults & PostModelOutputs
+# For other API calls we are using installer's PAT from secrets.toml file
+# So I am checking scopes on user's key  - only those scopes which are required for ListModelsRequest, PostWorkflowResults & PostModelOutputs 
+
+all_needed_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict','Workflows:Get']
 myscopes_response = get_userapp_scopes(user_or_secrets_stub, userDataObject)
 validate_scopes(all_needed_scopes, myscopes_response.scopes)
 
@@ -362,7 +366,7 @@ def run_model(input_text, model):
             ],
         ))
 
-    if response.outputs[0].status.code == status_code_pb2.MODEL_DEPLOYING and time.time(
+    if response.outputs and response.outputs[0].status.code == status_code_pb2.MODEL_DEPLOYING and time.time(
     ) - start_time < 60 * 10:
       st.info(f"{model.split(':')[0]} model is still deploying, please wait...")
       time.sleep(5)
