@@ -51,8 +51,6 @@ def get_userapp_scopes(stub: V2Stub, userDataObject):
 
 
 def validate_scopes(required_scopes, userapp_scopes):
-  st.write(required_scopes)
-  st.write(userapp_scopes)
   if "All" in userapp_scopes or all(scp in userapp_scopes for scp in required_scopes):
     return True
   st.error("You do not have correct scopes for this module")
