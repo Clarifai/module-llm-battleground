@@ -42,25 +42,31 @@ def get_default_models():
   models = st.secrets.DEFAULT_MODELS.split(",")
   return models
 
+
 def get_userapp_scopes(stub: V2Stub, userDataObject):
-  userDataObj = resources_pb2.UserAppIDSet(user_id=userDataObject.user_id,app_id=userDataObject.app_id)
-  response = stub.MyScopes(
-    service_pb2.MyScopesRequest(user_app_id=userDataObj)
-  )
+  userDataObj = resources_pb2.UserAppIDSet(
+      user_id=userDataObject.user_id, app_id=userDataObject.app_id)
+  response = stub.MyScopes(service_pb2.MyScopesRequest(user_app_id=userDataObj))
   return response
 
+
 def validate_scopes(required_scopes, userapp_scopes):
+  st.write(required_scopes)
+  st.write(userapp_scopes)
   if "All" in userapp_scopes or all(scp in userapp_scopes for scp in required_scopes):
     return True
   st.error("You do not have correct scopes for this module")
   st.stop()
   return False
 
+
 def show_error(request_name, response):
   st.error(f"There was an error with your request to {request_name}")
   st.json(json_format.MessageToJson(response, preserving_proto_field_name=True))
-  raise Exception(f"There was an error with your request to {request_name} {response.status.description}")
+  raise Exception(
+      f"There was an error with your request to {request_name} {response.status.description}")
   st.stop()
+
 
 def models_generator(
     stub: V2Stub,
@@ -139,7 +145,7 @@ COMPLETION_CONCEPT = resources_pb2.Concept(id="completion", value=1.0)
 secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
 pat = load_pat()
 secrets_auth._pat = pat
-secrets_stub = create_stub(secrets_auth) # installer's stub (PAT)
+secrets_stub = create_stub(secrets_auth)  # installer's stub (PAT)
 
 # TODO(mansi): validate with myscopes that we have all the scopes we need for the API calls to post
 # inputs and delete models/workflows.
@@ -159,19 +165,18 @@ userDataObject = user_or_secrets_auth.get_user_app_id_proto()
 
 # We are using user's (viewer's) PAT for ListModelsRequest, PostWorkflowResults & PostModelOutputs
 # For other API calls we are using installer's PAT from secrets.toml file
-# So I am checking scopes on user's key  - only those scopes which are required for ListModelsRequest, PostWorkflowResults & PostModelOutputs 
+# So I am checking scopes on user's key  - only those scopes which are required for ListModelsRequest, PostWorkflowResults & PostModelOutputs
 
-all_needed_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict','Workflows:Get']
+all_needed_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict', 'Workflows:Get']
 myscopes_response = get_userapp_scopes(user_or_secrets_stub, userDataObject)
 validate_scopes(all_needed_scopes, myscopes_response.scopes)
-
 
 lister = ClarifaiResourceLister(
     user_or_secrets_stub, user_or_secrets_auth.user_id, user_or_secrets_auth.app_id, page_size=16)
 
 filter_by = dict(
     query="LLM",
-    model_type_id="text-to-text",
+    # model_type_id="text-to-text",
 )
 API_INFO = list_models(user_or_secrets_stub, filter_by=filter_by)
 
@@ -468,10 +473,16 @@ def get_input(input_id):
   return response.input
 
 
-def get_text(url):
+def get_text(auth, url):
   """Download the raw text from the url"""
-  response = requests.get(url)
-  return response.text
+  try:
+    h = {"Authorization": f"Key {auth.pat}"}
+    response = requests.get(url, headers=h)
+    response.encoding = response.apparent_encoding
+  except Exception as e:
+    print(f"Error: {e}")
+    response = None
+  return response.text if response else ""
 
 
 # Check if prompt, completion and input are concepts in the user's app
@@ -507,14 +518,14 @@ inp = ""
 if "inp" in query_params:
   input_id = query_params["inp"][0]
   res = get_input(input_id)
-  inp = get_text(res.data.text.url)
+  inp = get_text(secrets_auth, res.data.text.url)
 
 st.markdown(
     "<h2 style='text-align: center; color: black;'>Try many LLMs at once, see what works best and share</h2>",
     unsafe_allow_html=True,
 )
 
-model_names = list(API_INFO.keys())
+model_names = sorted(API_INFO.keys())
 models = st.multiselect("Select the LLMs you want to use:", model_names, default=default_llms)
 
 inp = st.text_area(
@@ -661,7 +672,7 @@ with st.expander("Recent Messages from Others"):
     completions = []
     for completion_hit in completion_search_response.hits:
       if completion_hit.input.data.metadata.fields["input_id"].string_value == input_id:
-        txt = get_text(completion_hit.input.data.text.url)
+        txt = get_text(secrets_auth, completion_hit.input.data.text.url)
         model_url = completion_hit.input.data.metadata.fields["model"].string_value
         completions.append({"completion": txt, "model": model_url})
     return completions
@@ -670,7 +681,7 @@ with st.expander("Recent Messages from Others"):
 
   cols = cycle(st.columns(3))
   for idx, input_hit in enumerate(input_search_response.hits):
-    txt = get_text(input_hit.input.data.text.url)
+    txt = get_text(secrets_auth, input_hit.input.data.text.url)
     previous_inputs.append({
         "input": txt,
     })
