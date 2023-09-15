@@ -190,6 +190,8 @@ st.markdown(
 
 # st.markdown("Test out LLMs on a variety of tasks. See how they perform!")
 
+def reset_session():
+  st.session_state['generated_completions'] = False
 
 def get_user():
   req = service_pb2.GetUserRequest(user_app_id=resources_pb2.UserAppIDSet(user_id="me"))
@@ -527,13 +529,13 @@ st.markdown(
 )
 
 model_names = sorted(API_INFO.keys())
-models = st.multiselect("Select the LLMs you want to use:", model_names, default=default_llms)
+models = st.multiselect("Select the LLMs you want to use:", model_names, default=default_llms, on_change=reset_session)
 
 inp = st.text_area(
     " ",
     placeholder="Send a message to the LLMs",
     value=inp,
-    help="Genenerate outputs from the LLMs using this input.")
+    help="Genenerate outputs from the LLMs using this input.", on_change=reset_session)
 
 
 def render_card(container, input, caller_id, completions):
