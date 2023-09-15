@@ -535,7 +535,7 @@ inp = st.text_area(
     " ",
     placeholder="Send a message to the LLMs",
     value=inp,
-    help="Genenerate outputs from the LLMs using this input.")
+    help="Genenerate outputs from the LLMs using this input.", on_change=reset_session)
 
 
 def render_card(container, input, caller_id, completions):
