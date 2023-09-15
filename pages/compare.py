@@ -110,7 +110,6 @@ secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
 pat = load_pat()
 secrets_auth._pat = pat
 secrets_stub = create_stub(secrets_auth)  # installer's stub (PAT)
-st.write(f'secrets_stub:{secrets_stub}')
 # TODO(mansi): validate with myscopes that we have all the scopes we need for the API calls to post
 # inputs and delete models/workflows.
 
@@ -123,12 +122,9 @@ else:
 # Get the auth from secrets first and then override that if a pat is provided as a query param.
 # If no PAT is in the query param then the resulting auth/stub will match the secrets_auth/stub.
 user_or_secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
-st.write(f'user_secrets:{user_or_secrets_auth}')
 # This user_or_secrets_stub wil be used for all the predict calls so we bill the user for those.
 user_or_secrets_stub = create_stub(user_or_secrets_auth)  # user's (viewer's) stub
-st.write(f'user_secrets_stub:{user_or_secrets_stub.stub.stub}')
 userDataObject = user_or_secrets_auth.get_user_app_id_proto()
-st.write(f'user_data:{userDataObject}')
 
 # We are using user's (viewer's) PAT for ListModelsRequest, PostWorkflowResults & PostModelOutputs
 # For other API calls we are using installer's PAT from secrets.toml file
@@ -147,7 +143,6 @@ filter_by = dict(
 )
 API_INFO = list_all_models(filter_by=filter_by)
 default_llms = get_default_models()
-st.write(f'default_llms:{default_llms}')
 st.markdown(
     "<h1 style='text-align: center; color: black;'>LLM Battleground</h1>",
     unsafe_allow_html=True,
