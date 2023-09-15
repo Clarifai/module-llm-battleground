@@ -23,6 +23,9 @@ st.set_page_config(layout="wide")
 ClarifaiStreamlitCSS.insert_default_css(st)
 
 
+if 'generated_completions' not in st.session_state:
+  st.session_state['generated_completions'] = False
+
 def local_css(file_name):
   with open(file_name) as f:
     st.markdown("<style>{}</style>".format(f.read()), unsafe_allow_html=True)
@@ -562,7 +565,11 @@ def render_card(container, input, caller_id, completions):
     container.code(d['completion'], language=None)
 
 
-if st.button("Generate Completions"):
+generate_btn = st.button("Generate Completions")
+if generate_btn:
+  st.session_state['generated_completions'] = True
+
+if st.session_state['generated_completions']:
 
   if inp and models:
     if len(models) == 0:
