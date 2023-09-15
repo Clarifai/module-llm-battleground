@@ -11,13 +11,11 @@ import streamlit as st
 import streamlit.components.v1 as components
 from clarifai.auth.helper import ClarifaiAuthHelper
 from clarifai.client import V2Stub, create_stub
-#from clarifai.listing.lister import ClarifaiResourceLister
+from clarifai.listing.lister import ClarifaiResourceLister
 from clarifai.modules.css import ClarifaiStreamlitCSS
 from clarifai.urls.helper import ClarifaiUrlHelper
 from clarifai_grpc.grpc.api import resources_pb2, service_pb2
 from clarifai_grpc.grpc.api.status import status_code_pb2
-from clarifai.client.model import Model #New import to support list_model function
-from clarifai.client.app import App     #New import to support list_model function
 from google.protobuf import json_format
 from google.protobuf.json_format import MessageToDict
 
@@ -67,23 +65,58 @@ def show_error(request_name, response):
       f"There was an error with your request to {request_name} {response.status.description}")
   st.stop()
 
-def list_all_models(
+
+def models_generator(
+    stub: V2Stub,
+    page_size: int = 64,
     filter_by: dict = {},
-) -> Dict[str, Dict[str, str]]:
+) -> Iterator[resources_pb2.Model]:
   """
-    Iterator for all the LLM community models.
+    Iterator for all the community models based on specified conditions.
 
     Args:
+      stub: client stub.
+      page_size: the pagination size to use while iterating.
       filter_by: a dictionary of filters to apply to the list of models.
 
     Returns:
-      API_INFO: dictionary of models information.
-    """  
-  llm_community_models = App().list_models(filter_by=filter_by,
-                                                         only_in_app=False)
-  API_INFO={}
-  for model_name in llm_community_models:
-    model_dict=MessageToDict(model_name.model_info)
+      models: a list of Model protos for all the community models.
+    """
+  userDataObject = resources_pb2.UserAppIDSet()
+  model_success_status = {status_code_pb2.SUCCESS}
+
+  page = 1
+  while True:
+    response = stub.ListModels(
+        service_pb2.ListModelsRequest(
+            user_app_id=userDataObject, page=page, per_page=page_size, **filter_by),)
+
+    if response.status.code not in model_success_status:
+      show_error("ListModels", response)
+    if len(response.models) == 0:
+      break
+    for item in response.models:
+      yield item
+    page += 1
+
+
+def list_models(
+    stub: V2Stub,
+    filter_by: dict = {},
+) -> Dict[str, Dict[str, str]]:
+  """
+      Lists all the community models based on specified conditions.
+
+      Args:
+        stub: client stub.
+        filter_by: a dictionary of filters to apply to the list of models.
+
+      Returns:
+        API_INFO: dictionary of models information.
+    """
+  API_INFO = {}
+  for model_proto in models_generator(stub=stub, filter_by=filter_by):
+    model_dict = MessageToDict(model_proto)
     try:
       API_INFO[f"{model_dict['id']}: {model_dict['userId']}"] = dict(
           user_id=model_dict["userId"],
@@ -92,7 +125,8 @@ def list_all_models(
           version_id=model_dict["modelVersion"]["id"])
     except IndexError:
       pass
-  return API_INFO  
+  return API_INFO
+
 
 local_css("./style.css")
 
@@ -110,6 +144,7 @@ secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
 pat = load_pat()
 secrets_auth._pat = pat
 secrets_stub = create_stub(secrets_auth)  # installer's stub (PAT)
+
 # TODO(mansi): validate with myscopes that we have all the scopes we need for the API calls to post
 # inputs and delete models/workflows.
 
@@ -134,15 +169,17 @@ all_needed_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict', 'Wor
 myscopes_response = get_userapp_scopes(user_or_secrets_stub, userDataObject)
 validate_scopes(all_needed_scopes, myscopes_response.scopes)
 
-#lister = ClarifaiResourceLister(
-    #user_or_secrets_stub, user_or_secrets_auth.user_id, user_or_secrets_auth.app_id, page_size=16)
+lister = ClarifaiResourceLister(
+    user_or_secrets_stub, user_or_secrets_auth.user_id, user_or_secrets_auth.app_id, page_size=16)
 
 filter_by = dict(
     query="LLM",
     # model_type_id="text-to-text",
 )
-API_INFO = list_all_models(filter_by=filter_by)
+API_INFO = list_models(user_or_secrets_stub, filter_by=filter_by)
+
 default_llms = get_default_models()
+
 st.markdown(
     "<h1 style='text-align: center; color: black;'>LLM Battleground</h1>",
     unsafe_allow_html=True,
