@@ -9,9 +9,8 @@ import pandas as pd
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
-from clarifai.auth.helper import ClarifaiAuthHelper
-from clarifai.client import V2Stub, create_stub
-#from clarifai.listing.lister import ClarifaiResourceLister
+from clarifai.client.auth.helper import ClarifaiAuthHelper
+from clarifai.client.auth import V2Stub, create_stub
 from clarifai.modules.css import ClarifaiStreamlitCSS
 from clarifai.urls.helper import ClarifaiUrlHelper
 from clarifai_grpc.grpc.api import resources_pb2, service_pb2
@@ -24,6 +23,9 @@ from google.protobuf.json_format import MessageToDict
 st.set_page_config(layout="wide")
 ClarifaiStreamlitCSS.insert_default_css(st)
 
+
+if 'generated_completions' not in st.session_state:
+  st.session_state['generated_completions'] = False
 
 def local_css(file_name):
   with open(file_name) as f:
@@ -67,6 +69,7 @@ def show_error(request_name, response):
       f"There was an error with your request to {request_name} {response.status.description}")
   st.stop()
 
+
 def list_all_models(
     filter_by: dict = {},
 ) -> Dict[str, Dict[str, str]]:
@@ -92,7 +95,8 @@ def list_all_models(
           version_id=model_dict["modelVersion"]["id"])
     except IndexError:
       pass
-  return API_INFO  
+  return API_INFO 
+
 
 local_css("./style.css")
 
@@ -110,6 +114,7 @@ secrets_auth = ClarifaiAuthHelper.from_streamlit(st)
 pat = load_pat()
 secrets_auth._pat = pat
 secrets_stub = create_stub(secrets_auth)  # installer's stub (PAT)
+
 # TODO(mansi): validate with myscopes that we have all the scopes we need for the API calls to post
 # inputs and delete models/workflows.
 
@@ -134,22 +139,22 @@ all_needed_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict', 'Wor
 myscopes_response = get_userapp_scopes(user_or_secrets_stub, userDataObject)
 validate_scopes(all_needed_scopes, myscopes_response.scopes)
 
-#lister = ClarifaiResourceLister(
-    #user_or_secrets_stub, user_or_secrets_auth.user_id, user_or_secrets_auth.app_id, page_size=16)
-
 filter_by = dict(
     query="LLM",
     # model_type_id="text-to-text",
 )
+
 API_INFO = list_all_models(filter_by=filter_by)
+
 default_llms = get_default_models()
+
 st.markdown(
     "<h1 style='text-align: center; color: black;'>LLM Battleground</h1>",
     unsafe_allow_html=True,
 )
 
-# st.markdown("Test out LLMs on a variety of tasks. See how they perform!")
-
+def reset_session():
+  st.session_state['generated_completions'] = False
 
 def get_user():
   req = service_pb2.GetUserRequest(user_app_id=resources_pb2.UserAppIDSet(user_id="me"))
@@ -205,117 +210,8 @@ def create_prompt_model(model_id, prompt, position):
 
   return post_model_versions_response.model
 
-
-def delete_model(model):
-  response = secrets_stub.DeleteModels(
-      service_pb2.DeleteModelsRequest(
-          user_app_id=userDataObject,
-          ids=[model.id],
-      ))
-  if response.status.code != status_code_pb2.SUCCESS:
-    show_error("DeleteModels", response)
-
-
 @st.cache_resource
-def create_workflows(prompt, models):
-  workflows = []
-  prompt_model = create_prompt_model("test-prompt-model-" + uuid.uuid4().hex[:3], prompt,
-                                     "TEMPLATE")
-  for model in models:
-    workflows.append(create_workflow(prompt_model, model))
 
-  st.success(
-      f"Created {len(workflows)} workflows! Now ready to test it out by inputting some text below")
-  return prompt_model, workflows
-
-
-def create_workflow(prompt_model, selected_llm):
-  req = service_pb2.PostWorkflowsRequest(
-      user_app_id=userDataObject,
-      workflows=[
-          resources_pb2.Workflow(
-              id=
-              f"test-workflow-{API_INFO[selected_llm]['user_id']}-{API_INFO[selected_llm]['model_id']}-"
-              + uuid.uuid4().hex[:3],
-              nodes=[
-                  resources_pb2.WorkflowNode(
-                      id="prompt",
-                      model=resources_pb2.Model(
-                          id=prompt_model.id,
-                          user_id=prompt_model.user_id,
-                          app_id=prompt_model.app_id,
-                          model_version=resources_pb2.ModelVersion(
-                              id=prompt_model.model_version.id,
-                              user_id=prompt_model.user_id,
-                              app_id=prompt_model.app_id,
-                          ),
-                      ),
-                  ),
-                  resources_pb2.WorkflowNode(
-                      id="llm",
-                      model=resources_pb2.Model(
-                          id=API_INFO[selected_llm]["model_id"],
-                          user_id=API_INFO[selected_llm]["user_id"],
-                          app_id=API_INFO[selected_llm]["app_id"],
-                          model_version=resources_pb2.ModelVersion(
-                              id=API_INFO[selected_llm]["version_id"],
-                              user_id=API_INFO[selected_llm]["user_id"],
-                              app_id=API_INFO[selected_llm]["app_id"],
-                          ),
-                      ),
-                      node_inputs=[resources_pb2.NodeInput(node_id="prompt",)],
-                  ),
-              ],
-          ),
-      ],
-  )
-
-  # FIXME(zeiler): i think that if the user is logged in then postmodeloutputs or
-  # postworkflowresults will fail because these models/workflows are not made publicly visible.
-  # When the are anonymous then we fall back to the PAT provided in the secrets file.
-  response = secrets_stub.PostWorkflows(req)
-  if response.status.code != status_code_pb2.SUCCESS:
-    show_error("PostWorkflows", response)
-
-  if DEBUG:
-    st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
-
-  return response.workflows[0]
-
-
-def delete_workflow(workflow):
-  response = secrets_stub.DeleteWorkflows(
-      service_pb2.DeleteWorkflowsRequest(
-          user_app_id=userDataObject,
-          ids=[workflow.id],
-      ))
-  if response.status.code != status_code_pb2.SUCCESS:
-    show_error("DeleteWorkflows", response)
-  else:
-    print(f"Workflow {workflow.id} deleted")
-
-
-@st.cache_resource
-def run_workflow(input_text, workflow):
-  response = user_or_secrets_stub.PostWorkflowResults(
-      service_pb2.PostWorkflowResultsRequest(
-          user_app_id=userDataObject,
-          workflow_id=workflow.id,
-          inputs=[
-              resources_pb2.Input(
-                  data=resources_pb2.Data(text=resources_pb2.Text(raw=input_text,),),),
-          ],
-      ))
-  if response.status.code != status_code_pb2.SUCCESS:
-    show_error("PostWorkflowResults", response)
-
-  if DEBUG:
-    st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
-
-  return response
-
-
-@st.cache_resource
 def run_model(input_text, model):
 
   m = API_INFO[model]
@@ -487,13 +383,13 @@ st.markdown(
 )
 
 model_names = sorted(API_INFO.keys())
-models = st.multiselect("Select the LLMs you want to use:", model_names, default=default_llms)
+models = st.multiselect("Select the LLMs you want to use:", model_names, default=default_llms, on_change=reset_session)
 
 inp = st.text_area(
     " ",
     placeholder="Send a message to the LLMs",
     value=inp,
-    help="Genenerate outputs from the LLMs using this input.")
+    help="Genenerate outputs from the LLMs using this input.", on_change=reset_session)
 
 
 def render_card(container, input, caller_id, completions):
@@ -525,7 +421,11 @@ def render_card(container, input, caller_id, completions):
     container.code(d['completion'], language=None)
 
 
-if st.button("Generate Completions"):
+generate_btn = st.button("Generate Completions")
+if generate_btn:
+  st.session_state['generated_completions'] = True
+
+if st.session_state['generated_completions']:
 
   if inp and models:
     if len(models) == 0:
