@@ -212,27 +212,17 @@ def create_prompt_model(model_id, prompt, position):
 
 @st.cache_resource
 
+#Used predict_by_bytes new SDK function.
 def run_model(input_text, model):
 
   m = API_INFO[model]
+  model_obj=Model(model_id=m["model_id"], user_id=m["user_id"], app_id=m["app_id"])
   start_time = time.time()
+
   while True:
-
-    response = user_or_secrets_stub.PostModelOutputs(
-        service_pb2.PostModelOutputsRequest(
-            user_app_id=resources_pb2.UserAppIDSet(user_id=m['user_id'], app_id=m['app_id']),
-            model_id=m['model_id'],
-            inputs=[
-                resources_pb2.Input(
-                    data=resources_pb2.Data(text=resources_pb2.Text(raw=input_text,),),),
-            ],
-        ))
-
-    if response.outputs and response.outputs[0].status.code == status_code_pb2.MODEL_DEPLOYING and time.time(
-    ) - start_time < 60 * 10:
-      st.info(f"{model.split(':')[0]} model is still deploying, please wait...")
-      time.sleep(5)
-      continue
+    response = model_obj.predict_by_bytes(bytes(
+      input_text, 'utf-8'),
+      "text")
 
     if response.status.code != status_code_pb2.SUCCESS:
       show_error("PostModelOutputs", response)
