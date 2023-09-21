@@ -29,6 +29,7 @@ ClarifaiStreamlitCSS.insert_default_css(st)
 if 'generated_completions' not in st.session_state:
   st.session_state['generated_completions'] = False
 
+
 def local_css(file_name):
   with open(file_name) as f:
     st.markdown("<style>{}</style>".format(f.read()), unsafe_allow_html=True)
@@ -157,6 +158,8 @@ st.markdown(
 
 def reset_session():
   st.session_state['generated_completions'] = False
+# st.markdown("Test out LLMs on a variety of tasks. See how they perform!")
+
 
 def get_user():
   req = service_pb2.GetUserRequest(user_app_id=resources_pb2.UserAppIDSet(user_id="me"))
