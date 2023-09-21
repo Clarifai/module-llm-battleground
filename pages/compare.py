@@ -17,6 +17,7 @@ from clarifai_grpc.grpc.api import resources_pb2, service_pb2
 from clarifai_grpc.grpc.api.status import status_code_pb2
 from clarifai.client.model import Model #New import to support list_model function
 from clarifai.client.app import App     #New import to support list_model function
+from clarifai.client.input import Inputs
 from google.protobuf import json_format
 from google.protobuf.json_format import MessageToDict
 
@@ -217,17 +218,16 @@ def run_model(input_text, model):
 
   m = API_INFO[model]
   model_obj=Model(model_id=m["model_id"], user_id=m["user_id"], app_id=m["app_id"])
-  start_time = time.time()
-
   while True:
-    response = model_obj.predict_by_bytes(bytes(
+    try:
+      response = model_obj.predict_by_bytes(bytes(
       input_text, 'utf-8'),
       "text")
 
-    if response.status.code != status_code_pb2.SUCCESS:
-      show_error("PostModelOutputs", response)
-    else:
-      break
+    except Exception as e:
+      st.write(f"Error: {e}")
+    break
+    
 
   if DEBUG:
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
@@ -248,6 +248,10 @@ def post_input(txt, concepts=[], metadata=None):
           ),
       ],
   )
+  
+  input_obj = Inputs(userDataObject.user_id, app_id=userDataObject.app_id)
+  req2=input_obj.upload_text(input_id=id,raw_text=txt,)
+
   if len(concepts) > 0:
     req.inputs[0].data.concepts.extend(concepts)
   if metadata is not None:
