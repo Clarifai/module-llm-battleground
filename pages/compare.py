@@ -9,14 +9,17 @@ import pandas as pd
 import requests
 import streamlit as st
 import streamlit.components.v1 as components
-from clarifai.auth.helper import ClarifaiAuthHelper
-from clarifai.client import V2Stub, create_stub
-from clarifai.listing.lister import ClarifaiResourceLister
+from clarifai.client.auth.helper import ClarifaiAuthHelper
+from clarifai.client.auth import V2Stub, create_stub
 from clarifai.modules.css import ClarifaiStreamlitCSS
 from clarifai.urls.helper import ClarifaiUrlHelper
 from clarifai_grpc.grpc.api import resources_pb2, service_pb2
 from clarifai_grpc.grpc.api.status import status_code_pb2
+from clarifai.client.model import Model #New import to support list_model function
+from clarifai.client.app import App     #New import to support list_model function
+from clarifai.client.input import Inputs
 from google.protobuf import json_format
+from google.protobuf.struct_pb2 import Struct
 from google.protobuf.json_format import MessageToDict
 
 st.set_page_config(layout="wide")
@@ -25,6 +28,7 @@ ClarifaiStreamlitCSS.insert_default_css(st)
 
 if 'generated_completions' not in st.session_state:
   st.session_state['generated_completions'] = False
+
 
 def local_css(file_name):
   with open(file_name) as f:
@@ -69,57 +73,23 @@ def show_error(request_name, response):
   st.stop()
 
 
-def models_generator(
-    stub: V2Stub,
-    page_size: int = 64,
-    filter_by: dict = {},
-) -> Iterator[resources_pb2.Model]:
-  """
-    Iterator for all the community models based on specified conditions.
-
-    Args:
-      stub: client stub.
-      page_size: the pagination size to use while iterating.
-      filter_by: a dictionary of filters to apply to the list of models.
-
-    Returns:
-      models: a list of Model protos for all the community models.
-    """
-  userDataObject = resources_pb2.UserAppIDSet()
-  model_success_status = {status_code_pb2.SUCCESS}
-
-  page = 1
-  while True:
-    response = stub.ListModels(
-        service_pb2.ListModelsRequest(
-            user_app_id=userDataObject, page=page, per_page=page_size, **filter_by),)
-
-    if response.status.code not in model_success_status:
-      show_error("ListModels", response)
-    if len(response.models) == 0:
-      break
-    for item in response.models:
-      yield item
-    page += 1
-
-
-def list_models(
-    stub: V2Stub,
+def list_all_models(
     filter_by: dict = {},
 ) -> Dict[str, Dict[str, str]]:
   """
-      Lists all the community models based on specified conditions.
+    Iterator for all the LLM community models.
 
-      Args:
-        stub: client stub.
-        filter_by: a dictionary of filters to apply to the list of models.
+    Args:
+      filter_by: a dictionary of filters to apply to the list of models.
 
-      Returns:
-        API_INFO: dictionary of models information.
-    """
-  API_INFO = {}
-  for model_proto in models_generator(stub=stub, filter_by=filter_by):
-    model_dict = MessageToDict(model_proto)
+    Returns:
+      API_INFO: dictionary of models information.
+    """  
+  llm_community_models = App().list_models(filter_by=filter_by,
+                                                         only_in_app=False)
+  API_INFO={}
+  for model_name in llm_community_models:
+    model_dict=MessageToDict(model_name.model_info)
     try:
       API_INFO[f"{model_dict['id']}: {model_dict['userId']}"] = dict(
           user_id=model_dict["userId"],
@@ -128,7 +98,7 @@ def list_models(
           version_id=model_dict["modelVersion"]["id"])
     except IndexError:
       pass
-  return API_INFO
+  return API_INFO 
 
 
 local_css("./style.css")
@@ -172,14 +142,12 @@ all_needed_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict', 'Wor
 myscopes_response = get_userapp_scopes(user_or_secrets_stub, userDataObject)
 validate_scopes(all_needed_scopes, myscopes_response.scopes)
 
-lister = ClarifaiResourceLister(
-    user_or_secrets_stub, user_or_secrets_auth.user_id, user_or_secrets_auth.app_id, page_size=16)
-
 filter_by = dict(
     query="LLM",
     # model_type_id="text-to-text",
 )
-API_INFO = list_models(user_or_secrets_stub, filter_by=filter_by)
+
+API_INFO = list_all_models(filter_by=filter_by)
 
 default_llms = get_default_models()
 
@@ -188,10 +156,10 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# st.markdown("Test out LLMs on a variety of tasks. See how they perform!")
-
 def reset_session():
   st.session_state['generated_completions'] = False
+# st.markdown("Test out LLMs on a variety of tasks. See how they perform!")
+
 
 def get_user():
   req = service_pb2.GetUserRequest(user_app_id=resources_pb2.UserAppIDSet(user_id="me"))
@@ -225,6 +193,8 @@ def create_prompt_model(model_id, prompt, position):
               ),
           ],
       ))
+  
+  #response2= 
 
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("PostModels request failed: %r" % response)
@@ -247,144 +217,25 @@ def create_prompt_model(model_id, prompt, position):
 
   return post_model_versions_response.model
 
-
-def delete_model(model):
-  response = secrets_stub.DeleteModels(
-      service_pb2.DeleteModelsRequest(
-          user_app_id=userDataObject,
-          ids=[model.id],
-      ))
-  if response.status.code != status_code_pb2.SUCCESS:
-    show_error("DeleteModels", response)
-
-
 @st.cache_resource
-def create_workflows(prompt, models):
-  workflows = []
-  prompt_model = create_prompt_model("test-prompt-model-" + uuid.uuid4().hex[:3], prompt,
-                                     "TEMPLATE")
-  for model in models:
-    workflows.append(create_workflow(prompt_model, model))
 
-  st.success(
-      f"Created {len(workflows)} workflows! Now ready to test it out by inputting some text below")
-  return prompt_model, workflows
-
-
-def create_workflow(prompt_model, selected_llm):
-  req = service_pb2.PostWorkflowsRequest(
-      user_app_id=userDataObject,
-      workflows=[
-          resources_pb2.Workflow(
-              id=
-              f"test-workflow-{API_INFO[selected_llm]['user_id']}-{API_INFO[selected_llm]['model_id']}-"
-              + uuid.uuid4().hex[:3],
-              nodes=[
-                  resources_pb2.WorkflowNode(
-                      id="prompt",
-                      model=resources_pb2.Model(
-                          id=prompt_model.id,
-                          user_id=prompt_model.user_id,
-                          app_id=prompt_model.app_id,
-                          model_version=resources_pb2.ModelVersion(
-                              id=prompt_model.model_version.id,
-                              user_id=prompt_model.user_id,
-                              app_id=prompt_model.app_id,
-                          ),
-                      ),
-                  ),
-                  resources_pb2.WorkflowNode(
-                      id="llm",
-                      model=resources_pb2.Model(
-                          id=API_INFO[selected_llm]["model_id"],
-                          user_id=API_INFO[selected_llm]["user_id"],
-                          app_id=API_INFO[selected_llm]["app_id"],
-                          model_version=resources_pb2.ModelVersion(
-                              id=API_INFO[selected_llm]["version_id"],
-                              user_id=API_INFO[selected_llm]["user_id"],
-                              app_id=API_INFO[selected_llm]["app_id"],
-                          ),
-                      ),
-                      node_inputs=[resources_pb2.NodeInput(node_id="prompt",)],
-                  ),
-              ],
-          ),
-      ],
-  )
-
-  # FIXME(zeiler): i think that if the user is logged in then postmodeloutputs or
-  # postworkflowresults will fail because these models/workflows are not made publicly visible.
-  # When the are anonymous then we fall back to the PAT provided in the secrets file.
-  response = secrets_stub.PostWorkflows(req)
-  if response.status.code != status_code_pb2.SUCCESS:
-    show_error("PostWorkflows", response)
-
-  if DEBUG:
-    st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
-
-  return response.workflows[0]
-
-
-def delete_workflow(workflow):
-  response = secrets_stub.DeleteWorkflows(
-      service_pb2.DeleteWorkflowsRequest(
-          user_app_id=userDataObject,
-          ids=[workflow.id],
-      ))
-  if response.status.code != status_code_pb2.SUCCESS:
-    show_error("DeleteWorkflows", response)
-  else:
-    print(f"Workflow {workflow.id} deleted")
-
-
-@st.cache_resource
-def run_workflow(input_text, workflow):
-  response = user_or_secrets_stub.PostWorkflowResults(
-      service_pb2.PostWorkflowResultsRequest(
-          user_app_id=userDataObject,
-          workflow_id=workflow.id,
-          inputs=[
-              resources_pb2.Input(
-                  data=resources_pb2.Data(text=resources_pb2.Text(raw=input_text,),),),
-          ],
-      ))
-  if response.status.code != status_code_pb2.SUCCESS:
-    show_error("PostWorkflowResults", response)
-
-  if DEBUG:
-    st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
-
-  return response
-
-
-@st.cache_resource
+#Used predict_by_bytes new SDK function.
 def run_model(input_text, model):
 
   m = API_INFO[model]
-  start_time = time.time()
+  model_obj=Model(model_id=m["model_id"], user_id=m["user_id"], app_id=m["app_id"])
   while True:
+    try:
+      response = model_obj.predict_by_bytes(bytes(
+      input_text, 'utf-8'),
+      "text")
 
-    response = user_or_secrets_stub.PostModelOutputs(
-        service_pb2.PostModelOutputsRequest(
-            user_app_id=resources_pb2.UserAppIDSet(user_id=m['user_id'], app_id=m['app_id']),
-            model_id=m['model_id'],
-            inputs=[
-                resources_pb2.Input(
-                    data=resources_pb2.Data(text=resources_pb2.Text(raw=input_text,),),),
-            ],
-        ))
+    except Exception as e:
+      st.error(f"Model predict error : {e} ")
+      st.stop()
 
-    if response.outputs and response.outputs[0].status.code == status_code_pb2.MODEL_DEPLOYING and time.time(
-    ) - start_time < 60 * 10:
-      st.info(f"{model.split(':')[0]} model is still deploying, please wait...")
-      time.sleep(5)
-      continue
-
-    if response.status.code != status_code_pb2.SUCCESS:
-      show_error("PostModelOutputs", response)
-    else:
-      break
-
+    break
+  
   if DEBUG:
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
 
@@ -392,29 +243,25 @@ def run_model(input_text, model):
 
 
 @st.cache_resource
-def post_input(txt, concepts=[], metadata=None):
+def post_input(txt,id,concepts=[],metadata=None):
   """Posts input to the API and returns the response."""
-  id = hashlib.md5(txt.encode("utf-8")).hexdigest()
-  req = service_pb2.PostInputsRequest(
-      user_app_id=userDataObject,
-      inputs=[
-          resources_pb2.Input(
-              id=id,
-              data=resources_pb2.Data(text=resources_pb2.Text(raw=txt,),),
-          ),
-      ],
-  )
-  if len(concepts) > 0:
-    req.inputs[0].data.concepts.extend(concepts)
-  if metadata is not None:
-    req.inputs[0].data.metadata.update(metadata)
-  response = secrets_stub.PostInputs(req)
-  if response.status.code != status_code_pb2.SUCCESS:
-    if len(response.inputs) and response.inputs[0].status.details.find("duplicate ID") != -1:
-      # If the input already exists, just return the input
-      return req.inputs[0]
-    show_error("PostInputs", response)
-  return response.inputs[0]
+  metadata_struct = Struct()
+  metadata_struct.update(metadata)
+  metadata = metadata_struct
+  try:
+    input_job_id = Inputs(
+      logger_level="ERROR",
+      user_id=userDataObject.user_id,
+      app_id=userDataObject.app_id).upload_from_bytes(
+        id,text_bytes=bytes(txt,'UTF-8'),
+        labels=concepts,
+        metadata=metadata)
+                                                                                                             
+  except Exception as e:
+    st.error(f"post input error:{e}")
+    #st.stop
+  
+  return input_job_id
 
 
 def list_concepts():
@@ -490,7 +337,7 @@ def get_text(auth, url):
 
 # Check if prompt, completion and input are concepts in the user's app
 app_concepts = list_concepts()
-for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
+for concept in [PROMPT_CONCEPT,INPUT_CONCEPT, COMPLETION_CONCEPT]:
   if concept.id not in [c.id for c in app_concepts]:
     st.warning(
         f"The {concept.id} concept is not in your app. Please add it by clicking the button below."
@@ -504,7 +351,7 @@ app_concept_ids = [c.id for c in app_concepts]
 
 # Check if all required concepts are in the app
 concepts_ready_bool = True
-for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
+for concept in [PROMPT_CONCEPT,INPUT_CONCEPT, COMPLETION_CONCEPT]:
   if concept.id not in app_concept_ids:
     concepts_ready_bool = False
 
@@ -584,14 +431,9 @@ if st.session_state['generated_completions']:
       if concept.id not in concept_ids:
         post_concept(concept)
         st.success(f"Added {concept.id} concept")
-
-    inp_input = post_input(
-        inp,
-        concepts=[INPUT_CONCEPT],
-        metadata={"tags": ["input"],
-                  "caller": caller_id},
-    )
-
+    #input id     
+    id = hashlib.md5(inp.encode("utf-8")).hexdigest() 
+    inp_job_id = post_input(inp,id,concepts=["input"],metadata={"tags": ["input"],"caller": caller_id})
     # st.markdown(
     #     "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
     #     unsafe_allow_html=True,
@@ -601,7 +443,7 @@ if st.session_state['generated_completions']:
     h = ClarifaiUrlHelper(user_or_secrets_auth)
     link = h.clarifai_url(userDataObject.user_id, userDataObject.app_id,
                           "installed_module_versions", query_params["imv_id"][0])
-    link = f"{link}?inp={inp_input.id}"
+    link = f"{link}?inp={id}"
 
     for mi, model in enumerate(models):
       col = cols[mi % len(cols)]
@@ -615,11 +457,12 @@ if st.session_state['generated_completions']:
 
       completion = prediction.outputs[0].data.text.raw
       # container.write(completion)
-      complete_input = post_input(
+      completion_job_id = post_input(
           completion,
-          concepts=[COMPLETION_CONCEPT],
+          id=hashlib.md5(completion.encode("utf-8")).hexdigest(),
+          concepts=['completion'],
           metadata={
-              "input_id": inp_input.id,
+              "input_id": id ,
               "tags": ["completion"],
               "model": model_url_with_version,
               "caller": caller_id,
