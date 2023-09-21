@@ -104,7 +104,7 @@ local_css("./style.css")
 DEBUG = False
 completions = []
 
-PROMPT_CONCEPT = resources_pb2.Concept(id="prompt", value=1.0)
+#PROMPT_CONCEPT = resources_pb2.Concept(id="prompt", value=1.0)
 INPUT_CONCEPT = resources_pb2.Concept(id="input", value=1.0)
 COMPLETION_CONCEPT = resources_pb2.Concept(id="completion", value=1.0)
 
@@ -189,6 +189,8 @@ def create_prompt_model(model_id, prompt, position):
               ),
           ],
       ))
+  
+  #response2= 
 
   if response.status.code != status_code_pb2.SUCCESS:
     raise Exception("PostModels request failed: %r" % response)
@@ -225,10 +227,11 @@ def run_model(input_text, model):
       "text")
 
     except Exception as e:
-      st.write(f"Error: {e}")
-    break
-    
+      st.error(f"Model predict error : {e} ")
+      st.stop()
 
+    break
+  
   if DEBUG:
     st.json(json_format.MessageToDict(response, preserving_proto_field_name=True))
 
@@ -238,31 +241,17 @@ def run_model(input_text, model):
 @st.cache_resource
 def post_input(txt, concepts=[], metadata=None):
   """Posts input to the API and returns the response."""
-  id = hashlib.md5(txt.encode("utf-8")).hexdigest()
-  req = service_pb2.PostInputsRequest(
-      user_app_id=userDataObject,
-      inputs=[
-          resources_pb2.Input(
-              id=id,
-              data=resources_pb2.Data(text=resources_pb2.Text(raw=txt,),),
-          ),
-      ],
-  )
-  
-  input_obj = Inputs(userDataObject.user_id, app_id=userDataObject.app_id)
-  req2=input_obj.upload_text(input_id=id,raw_text=txt,)
+  try:
 
-  if len(concepts) > 0:
-    req.inputs[0].data.concepts.extend(concepts)
-  if metadata is not None:
-    req.inputs[0].data.metadata.update(metadata)
-  response = secrets_stub.PostInputs(req)
-  if response.status.code != status_code_pb2.SUCCESS:
-    if len(response.inputs) and response.inputs[0].status.details.find("duplicate ID") != -1:
-      # If the input already exists, just return the input
-      return req.inputs[0]
-    show_error("PostInputs", response)
-  return response.inputs[0]
+    id = hashlib.md5(txt.encode("utf-8")).hexdigest()
+    input_obj = Inputs(userDataObject.user_id, app_id=userDataObject.app_id)
+    req=input_obj.upload_text(input_id=id,raw_text=txt,)
+
+  except Exception as e:
+    st.error(f"post input error:{e}")
+    st.stop
+  
+  return req
 
 
 def list_concepts():
@@ -338,7 +327,7 @@ def get_text(auth, url):
 
 # Check if prompt, completion and input are concepts in the user's app
 app_concepts = list_concepts()
-for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
+for concept in [INPUT_CONCEPT, COMPLETION_CONCEPT]:
   if concept.id not in [c.id for c in app_concepts]:
     st.warning(
         f"The {concept.id} concept is not in your app. Please add it by clicking the button below."
@@ -352,7 +341,7 @@ app_concept_ids = [c.id for c in app_concepts]
 
 # Check if all required concepts are in the app
 concepts_ready_bool = True
-for concept in [PROMPT_CONCEPT, INPUT_CONCEPT, COMPLETION_CONCEPT]:
+for concept in [INPUT_CONCEPT, COMPLETION_CONCEPT]:
   if concept.id not in app_concept_ids:
     concepts_ready_bool = False
 
@@ -439,7 +428,6 @@ if st.session_state['generated_completions']:
         metadata={"tags": ["input"],
                   "caller": caller_id},
     )
-
     # st.markdown(
     #     "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
     #     unsafe_allow_html=True,
@@ -449,7 +437,7 @@ if st.session_state['generated_completions']:
     h = ClarifaiUrlHelper(user_or_secrets_auth)
     link = h.clarifai_url(userDataObject.user_id, userDataObject.app_id,
                           "installed_module_versions", query_params["imv_id"][0])
-    link = f"{link}?inp={inp_input.id}"
+    link = f"{link}?inp={inp_input}"
 
     for mi, model in enumerate(models):
       col = cols[mi % len(cols)]
@@ -467,7 +455,7 @@ if st.session_state['generated_completions']:
           completion,
           concepts=[COMPLETION_CONCEPT],
           metadata={
-              "input_id": inp_input.id,
+              "input_id": inp_input ,
               "tags": ["completion"],
               "model": model_url_with_version,
               "caller": caller_id,
