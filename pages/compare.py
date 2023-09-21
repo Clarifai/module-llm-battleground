@@ -19,6 +19,7 @@ from clarifai.client.model import Model #New import to support list_model functi
 from clarifai.client.app import App     #New import to support list_model function
 from clarifai.client.input import Inputs
 from google.protobuf import json_format
+from google.protobuf.struct_pb2 import Struct
 from google.protobuf.json_format import MessageToDict
 
 st.set_page_config(layout="wide")
@@ -104,7 +105,7 @@ local_css("./style.css")
 DEBUG = False
 completions = []
 
-#PROMPT_CONCEPT = resources_pb2.Concept(id="prompt", value=1.0)
+PROMPT_CONCEPT = resources_pb2.Concept(id="prompt", value=1.0)
 INPUT_CONCEPT = resources_pb2.Concept(id="input", value=1.0)
 COMPLETION_CONCEPT = resources_pb2.Concept(id="completion", value=1.0)
 
@@ -239,19 +240,25 @@ def run_model(input_text, model):
 
 
 @st.cache_resource
-def post_input(txt, concepts=[], metadata=None):
+def post_input(txt,id,concepts=[],metadata=None):
   """Posts input to the API and returns the response."""
+  metadata_struct = Struct()
+  metadata_struct.update(metadata)
+  metadata = metadata_struct
   try:
-
-    id = hashlib.md5(txt.encode("utf-8")).hexdigest()
-    input_obj = Inputs(userDataObject.user_id, app_id=userDataObject.app_id)
-    req=input_obj.upload_text(input_id=id,raw_text=txt,)
-
+    input_job_id = Inputs(
+      logger_level="ERROR",
+      user_id=userDataObject.user_id,
+      app_id=userDataObject.app_id).upload_from_bytes(
+        id,text_bytes=bytes(txt,'UTF-8'),
+        labels=concepts,
+        metadata=metadata)
+                                                                                                             
   except Exception as e:
     st.error(f"post input error:{e}")
-    st.stop
+    #st.stop
   
-  return req
+  return input_job_id
 
 
 def list_concepts():
@@ -327,7 +334,7 @@ def get_text(auth, url):
 
 # Check if prompt, completion and input are concepts in the user's app
 app_concepts = list_concepts()
-for concept in [INPUT_CONCEPT, COMPLETION_CONCEPT]:
+for concept in [PROMPT_CONCEPT,INPUT_CONCEPT, COMPLETION_CONCEPT]:
   if concept.id not in [c.id for c in app_concepts]:
     st.warning(
         f"The {concept.id} concept is not in your app. Please add it by clicking the button below."
@@ -341,7 +348,7 @@ app_concept_ids = [c.id for c in app_concepts]
 
 # Check if all required concepts are in the app
 concepts_ready_bool = True
-for concept in [INPUT_CONCEPT, COMPLETION_CONCEPT]:
+for concept in [PROMPT_CONCEPT,INPUT_CONCEPT, COMPLETION_CONCEPT]:
   if concept.id not in app_concept_ids:
     concepts_ready_bool = False
 
@@ -421,13 +428,9 @@ if st.session_state['generated_completions']:
       if concept.id not in concept_ids:
         post_concept(concept)
         st.success(f"Added {concept.id} concept")
-
-    inp_input = post_input(
-        inp,
-        concepts=[INPUT_CONCEPT],
-        metadata={"tags": ["input"],
-                  "caller": caller_id},
-    )
+    #input id     
+    id = hashlib.md5(inp.encode("utf-8")).hexdigest() 
+    inp_job_id = post_input(inp,id,concepts=["input"],metadata={"tags": ["input"],"caller": caller_id})
     # st.markdown(
     #     "<h1 style='text-align: center;font-size: 40px;color: #667085;'>Completions</h1>",
     #     unsafe_allow_html=True,
@@ -437,7 +440,7 @@ if st.session_state['generated_completions']:
     h = ClarifaiUrlHelper(user_or_secrets_auth)
     link = h.clarifai_url(userDataObject.user_id, userDataObject.app_id,
                           "installed_module_versions", query_params["imv_id"][0])
-    link = f"{link}?inp={inp_input}"
+    link = f"{link}?inp={id}"
 
     for mi, model in enumerate(models):
       col = cols[mi % len(cols)]
@@ -451,11 +454,12 @@ if st.session_state['generated_completions']:
 
       completion = prediction.outputs[0].data.text.raw
       # container.write(completion)
-      complete_input = post_input(
+      completion_job_id = post_input(
           completion,
-          concepts=[COMPLETION_CONCEPT],
+          id=hashlib.md5(completion.encode("utf-8")).hexdigest(),
+          concepts=['completion'],
           metadata={
-              "input_id": inp_input ,
+              "input_id": id ,
               "tags": ["completion"],
               "model": model_url_with_version,
               "caller": caller_id,
