@@ -568,7 +568,7 @@ cols[1].markdown(
     "<a href='https://docs.clarifai.com/portal-guide/modules/create-install'>📚Learn how to build your own module </a>",
     unsafe_allow_html=True)
 cols[2].markdown(
-    "<a href='https://join.slack.com/t/clarifaicommunity/shared_invite/zt-1jehqesme-l60djcd3c_4a1eCV~uPUjQ'><img src='https://www.clarifai.com/hubfs/slack-icon.svg'/> Request a feature</a>",
+    "<a href='https://discord.com/invite/26upV8Y4Nd'><img src='https://www.clarifai.com/hubfs/discord-icon.svg'/> Request a feature</a>",
     unsafe_allow_html=True)
 
 st.markdown(
