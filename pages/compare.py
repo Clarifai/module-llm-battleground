@@ -231,7 +231,7 @@ def create_prompt_model(model_id, prompt, position):
 def run_model(input_text, model):
 
   m = API_INFO[model]
-  model_obj=Model(model_id=m["model_id"], user_id=m["user_id"], app_id=m["app_id"])
+  model_obj=Model(model_id=m["model_id"], user_id=m["user_id"], app_id=m["app_id"], pat=secrets_auth.pat)
   while True:
     try:
       response = model_obj.predict_by_bytes(bytes(
