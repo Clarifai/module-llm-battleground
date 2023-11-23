@@ -60,8 +60,6 @@ def get_userapp_scopes(stub: V2Stub, userDataObject):
 def validate_scopes(required_scopes, userapp_scopes):
   if "All" in userapp_scopes or all(scp in userapp_scopes for scp in required_scopes):
     return True
-  st.error("You do not have correct scopes for this module")
-  st.stop()
   return False
 
 
@@ -138,9 +136,19 @@ userDataObject = user_or_secrets_auth.get_user_app_id_proto()
 # For other API calls we are using installer's PAT from secrets.toml file
 # So I am checking scopes on user's key  - only those scopes which are required for ListModelsRequest, PostWorkflowResults & PostModelOutputs
 
-all_needed_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict', 'Workflows:Get']
+needed_read_scopes = ['Inputs:Get', 'Models:Get', 'Concepts:Get', 'Predict', 'Workflows:Get']
 myscopes_response = get_userapp_scopes(user_or_secrets_stub, userDataObject)
-validate_scopes(all_needed_scopes, myscopes_response.scopes)
+if not validate_scopes(needed_read_scopes, myscopes_response.scopes):
+  st.error("You do not have correct scopes for this module")
+  st.stop()
+
+# If the user has these write scopes, it means that the user has installed this module in his app. 
+# Note: this step is necessary as in secrets.toml, we have PAT for from Clarifai org's account which won't have write scopes for user's installed module.
+needed_write_scopes = ['Concepts:Add']
+if validate_scopes(needed_write_scopes, myscopes_response.scopes):
+  secrets_auth = user_or_secrets_auth
+  secrets_stub = user_or_secrets_stub
+
 
 filter_by = dict(
     query="LLM",
