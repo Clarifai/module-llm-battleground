@@ -1,4 +1,4 @@
 clarifai==9.10.4
 clarifai-grpc==9.10.0
-streamlit==1.23.1
+streamlit==1.30.0
 streamlit-diff-viewer==0.0.2
